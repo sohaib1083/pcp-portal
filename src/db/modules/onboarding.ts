@@ -29,6 +29,11 @@ export const onboardingRequests = pgTable("onboarding_requests", {
   mobile: text("mobile").notNull(),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
   mobileVerifiedAt: timestamp("mobile_verified_at", { withTimezone: true }),
+  // Account verification: only hashes of the 6-digit codes are kept (the codes travel by email and SMS).
+  emailCodeHash: text("email_code_hash"),
+  mobileCodeHash: text("mobile_code_hash"),
+  codesExpireAt: timestamp("codes_expire_at", { withTimezone: true }),
+  codeAttempts: integer("code_attempts").notNull().default(0),
   profile: jsonb("profile").$type<OnboardingProfile>().notNull().default({}),
   campuses: jsonb("campuses").$type<OnboardingCampus[]>().notNull().default([]),
   programmes: jsonb("programmes").$type<OnboardingProgramme[]>().notNull().default([]),
@@ -39,4 +44,17 @@ export const onboardingRequests = pgTable("onboarding_requests", {
   institutionId: integer("institution_id"), // set on approval
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Every status change of a request, with who and why. Returns and their reasons stay visible after a resubmission. */
+export const onboardingEvents = pgTable("onboarding_events", {
+  id: serial("id").primaryKey(),
+  requestId: integer("request_id")
+    .notNull()
+    .references(() => onboardingRequests.id),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  actor: text("actor").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

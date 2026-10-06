@@ -117,3 +117,84 @@ export async function resetPassword(username: string) {
   await kc(`/users/${u.id}/reset-password`, { method: "PUT", body: JSON.stringify({ type: "password", value: password, temporary: true }) });
   return password;
 }
+
+// ---------- Self-registration and approval of institutions (onboarding) ----------
+
+/**
+ * Self-registration: an account with the password the applicant chose (permanent, not temporary).
+ * Keycloak does not verify the email; the portal verifies email and mobile with its own codes.
+ */
+export async function createUserWithPassword(o: { username: string; email: string; fullName: string; role: string; password: string }) {
+  const [firstName, ...rest] = o.fullName.replace(/^(Dr\.?|Prof\.?|Mr\.?|Ms\.?|Mrs\.?)\s+/i, "").split(" ");
+  const res = await kc(`/users`, {
+    method: "POST",
+    body: JSON.stringify({
+      username: o.username,
+      email: o.email,
+      firstName: firstName || o.username,
+      lastName: rest.join(" ") || "-",
+      enabled: true,
+      emailVerified: false,
+      credentials: [{ type: "password", value: o.password, temporary: false }],
+    }),
+  });
+  const id = res.headers.get("location")?.split("/").pop();
+  if (!id) throw new Error("Keycloak did not return the new user id");
+  try {
+    const role = await (await kc(`/roles/${encodeURIComponent(o.role)}`)).json();
+    await kc(`/users/${id}/role-mappings/realm`, { method: "POST", body: JSON.stringify([role]) });
+  } catch (e) {
+    await deleteUserById(id).catch(() => undefined);
+    throw e;
+  }
+  return { id };
+}
+
+/** Undo a half-finished registration. Only ever called for an account created moments earlier. */
+export async function deleteUserById(id: string) {
+  await kc(`/users/${id}`, { method: "DELETE" });
+}
+
+/** True when Keycloak already has an account with this email (the realm does not allow duplicates). */
+export async function emailInUse(email: string) {
+  const res = await kc(`/users?email=${encodeURIComponent(email)}&exact=true&briefRepresentation=true`);
+  return ((await res.json()) as KcUser[]).length > 0;
+}
+
+async function requireUserId(username: string) {
+  const u = await findUser(username);
+  if (!u) throw new Error(`No Keycloak user ${username}`);
+  return u.id;
+}
+
+export async function addRealmRole(username: string, roleName: string) {
+  const id = await requireUserId(username);
+  const role = await (await kc(`/roles/${encodeURIComponent(roleName)}`)).json();
+  await kc(`/users/${id}/role-mappings/realm`, { method: "POST", body: JSON.stringify([role]) });
+}
+
+export async function removeRealmRole(username: string, roleName: string) {
+  const id = await requireUserId(username);
+  const role = await (await kc(`/roles/${encodeURIComponent(roleName)}`)).json();
+  await kc(`/users/${id}/role-mappings/realm`, { method: "DELETE", body: JSON.stringify([role]) });
+}
+
+export async function realmRolesOf(username: string): Promise<string[]> {
+  const id = await requireUserId(username);
+  const res = await kc(`/users/${id}/role-mappings/realm`);
+  return ((await res.json()) as { name: string }[]).map((r) => r.name);
+}
+
+/** Put a user into an institution's group: the group is what scopes their data to that institution. */
+export async function joinInstitutionGroup(username: string, institutionCode: string) {
+  const id = await requireUserId(username);
+  const gid = await groupIdByPath(`/institutions/${institutionCode}`);
+  await kc(`/users/${id}/groups/${gid}`, { method: "PUT" });
+}
+
+/** Take a user out of every group (used to restore the seeded applicant to its starting state). */
+export async function leaveAllGroups(username: string) {
+  const id = await requireUserId(username);
+  const groups = (await (await kc(`/users/${id}/groups`)).json()) as { id: string }[];
+  for (const g of groups) await kc(`/users/${id}/groups/${g.id}`, { method: "DELETE" });
+}

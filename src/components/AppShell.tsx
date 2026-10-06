@@ -35,6 +35,7 @@ import {
 } from "@ant-design/icons";
 import { logoutAction } from "@/app/actions/auth";
 import { Avatar, Logo, timeAgo } from "./common";
+import IdleTimeout from "./IdleTimeout";
 
 const ICONS: Record<string, React.ReactNode> = {
   dashboard: <DashboardOutlined />,
@@ -224,6 +225,7 @@ export default function AppShell({
         </Layout.Header>
         <Layout.Content className="pcp-content">{children}</Layout.Content>
       </Layout>
+      <IdleTimeout />
     </Layout>
   );
 }
