@@ -251,6 +251,10 @@ try {
     const [m] = await q("select status, minutes_document_id from council_meetings where ref = 'CM-2026-07'");
     if (m.status !== "CLOSED" || !m.minutes_document_id) fail("CM-2026-07 not closed with minutes");
     await client.end();
+    // Every step above wrote to the hash-chained audit log; the chain must still verify.
+    const chain = JSON.parse(execSync("npm run -s audit:verify", { encoding: "utf8" }).trim().split("\n").pop());
+    if (!chain.ok) fail(`audit chain broken at row ${chain.brokenAt}`);
+    log(`audit chain verifies (${chain.total} rows)`);
   }
 
   console.log(`\nPASS: council module end to end. Screenshots in ${OUT}`);

@@ -199,7 +199,7 @@ export async function recordItemDecision(itemId: number, raw: unknown): Promise<
           .update(schema.councilItems)
           .set({ decision: v.decision, decisionNote: grounds && v.decision === "REJECTED" ? grounds : note || null, deferUntil: deferUntil ?? null, decidedBy: user.username, decidedAt: new Date() })
           .where(eq(schema.councilItems.id, item.id));
-        await audit(tx, { actor: user.username, action: "council.item.decided", entity: "council_meeting", entityId: m.ref, details: { case: app.ref, decision: v.decision, deferUntil } });
+        await audit(tx, { actor: user.username, action: "council.item.decided", entity: "council_meeting", entityId: m.ref, details: { case: app.ref, decision: v.decision, deferUntil: deferUntil ?? null } });
       });
       refresh(m.ref);
       return { ok: true, message: `${app.ref}: ${DECISION_LABELS[v.decision].toLowerCase()}. The institution is notified.`, level: "success" };
