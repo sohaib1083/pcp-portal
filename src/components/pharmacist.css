@@ -1,0 +1,30 @@
+/* Pharmacist portal: on-screen registration card (same layout as the card PDF) and the update form. */
+.reg-card { width: 100%; max-width: 440px; aspect-ratio: 85.6 / 54; border-radius: 14px; overflow: hidden; background: #fff; border: 1px solid var(--line); box-shadow: 0 10px 28px rgba(16, 40, 30, 0.14); display: flex; flex-direction: column; container-type: inline-size; }
+.reg-card-head { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: var(--forest); color: #fff; border-bottom: 3px solid var(--gold); }
+.reg-card-org { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; line-height: 1.2; }
+.reg-card-kind { font-size: 9.5px; color: rgba(255, 255, 255, 0.72); line-height: 1.2; }
+.reg-card-cat { font-size: 10px; font-weight: 700; color: var(--gold); white-space: nowrap; }
+.reg-card-body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 10px 12px 6px; min-height: 0; }
+.reg-card-name { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reg-card-father { font-size: 10.5px; color: var(--muted); margin-bottom: 4px; }
+.reg-card-k { font-size: 8px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); margin-top: 4px; }
+.reg-card-v { font-size: 11.5px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reg-card-v.mono { font-size: 12.5px; font-weight: 700; }
+.reg-card-qr { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 9px; color: var(--muted); }
+.reg-card-qr img { width: 92px; height: 92px; border: 1px solid var(--line); border-radius: 6px; padding: 3px; background: #fff; }
+.reg-card-foot { font-size: 9px; font-weight: 700; color: #b4141f; background: #eef4f1; padding: 3px 12px; }
+.ph-update-form { margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--line); }
+
+/* Narrow cards (phones): scale the card text with its width. */
+@container (max-width: 360px) {
+  .reg-card-head { padding: 7px 10px; gap: 8px; }
+  .reg-card-org { font-size: 9.5px; }
+  .reg-card-kind { font-size: 8.5px; }
+  .reg-card-name { font-size: 14px; }
+  .reg-card-v { font-size: 10.5px; }
+  .reg-card-v.mono { font-size: 11px; }
+  .reg-card-k { font-size: 7.5px; margin-top: 2px; }
+  .reg-card-father { font-size: 9.5px; margin-bottom: 2px; }
+  .reg-card-qr img { width: 74px; height: 74px; }
+  .reg-card-body { padding: 8px 10px 4px; }
+}
