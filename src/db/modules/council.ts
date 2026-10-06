@@ -8,6 +8,8 @@ export const councilMeetings = pgTable("council_meetings", {
   meetingDate: date("meeting_date").notNull(),
   status: text("status").notNull().default("PLANNED"), // PLANNED | IN_SESSION | CLOSED
   minutesDocumentId: integer("minutes_document_id"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -24,6 +26,7 @@ export const councilItems = pgTable("council_items", {
   decision: text("decision"),
   decisionNote: text("decision_note"),
   deferUntil: date("defer_until"),
+  decidedBy: text("decided_by"),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
 });
 
@@ -38,9 +41,12 @@ export const appeals = pgTable("appeals", {
   status: text("status").notNull().default("FILED"), // FILED | UNDER_REVIEW | ON_AGENDA | UPHELD | DISMISSED | WITHDRAWN
   filedBy: text("filed_by").notNull(),
   reviewNote: text("review_note"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   decidedBy: text("decided_by"),
   decisionNote: text("decision_note"),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
+  letterDocumentId: integer("letter_document_id"), // the appeal decision letter
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

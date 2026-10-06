@@ -1,0 +1,293 @@
+"use server";
+// Council meetings (guide sections 4 and 14): agenda built from ready cases, a decision per item, minutes.
+import { revalidatePath } from "next/cache";
+import { unstable_rethrow } from "next/navigation";
+import { asc, desc, eq, sql } from "drizzle-orm";
+import { z } from "zod";
+import { db, schema } from "@/db";
+import { audit } from "@/lib/audit";
+import { DECISION_LABELS, draftFromRecommendation, fileAppealLetter, fileMinutes, fmtDay, nextModuleRef, notifyOn, readyForCouncil, recommendationFor, reopenCaseForCouncil } from "@/lib/council";
+import { requireOtp } from "@/lib/otp";
+import { can } from "@/lib/roles";
+import { requirePermission, requireUser } from "@/lib/session";
+import { notify } from "@/lib/util";
+import { recordDecision } from "./pcp";
+import type { ActionResult } from "./faculty";
+
+const fail = (message: string): ActionResult => ({ ok: false, message, level: "error" });
+
+async function guard(fn: () => Promise<ActionResult & { ref?: string }>) {
+  try {
+    return await fn();
+  } catch (e) {
+    unstable_rethrow(e);
+    return fail(e instanceof Error ? e.message : String(e));
+  }
+}
+
+async function getMeeting(ref: string) {
+  const m = await db.query.councilMeetings.findFirst({ where: eq(schema.councilMeetings.ref, ref) });
+  if (!m) throw new Error(`Council meeting ${ref} was not found.`);
+  return m;
+}
+
+function refresh(ref?: string) {
+  revalidatePath("/pcp/council");
+  if (ref) revalidatePath(`/pcp/council/${ref}`);
+  revalidatePath("/pcp/appeals");
+}
+
+const MeetingInput = z.object({
+  title: z.string().trim().min(3, "Give the meeting a title of at least 3 characters."),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick the meeting date."),
+});
+
+export async function createMeeting(raw: unknown): Promise<ActionResult & { ref?: string }> {
+  const user = await requirePermission("pcp.council.manage");
+  return guard(async () => {
+    const parsed = MeetingInput.safeParse(raw);
+    if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the title and date.");
+    const v = parsed.data;
+    if (v.date < new Date().toISOString().slice(0, 10)) return fail("The meeting date is in the past. Pick today or a later date.");
+    const ref = await db.transaction(async (tx) => {
+      const r = await nextModuleRef(tx, "council_meetings", "CM", 2, Number(v.date.slice(0, 4)));
+      await tx.insert(schema.councilMeetings).values({ ref: r, title: v.title, meetingDate: v.date, createdBy: user.username });
+      await audit(tx, { actor: user.username, action: "council.meeting.created", entity: "council_meeting", entityId: r, details: { title: v.title, date: v.date } });
+      return r;
+    });
+    refresh(ref);
+    return { ok: true, message: `Meeting ${ref} created for ${fmtDay(v.date)}. Next: build its agenda from the ready cases.`, level: "success", ref };
+  });
+}
+
+/** Adds every case awaiting a council decision and every appeal ready for council that is not on an open agenda yet. */
+export async function buildAgenda(meetingRef: string): Promise<ActionResult> {
+  const user = await requirePermission("pcp.council.manage");
+  return guard(async () => {
+    const m = await getMeeting(meetingRef);
+    if (m.status === "CLOSED") return fail(`${m.ref} is closed. Build the agenda of a planned meeting instead.`);
+    const added = await db.transaction(async (tx) => {
+      const { cases, appeals } = await readyForCouncil(tx);
+      const [{ max }] = await tx.select({ max: sql<number>`coalesce(max(${schema.councilItems.position}),0)::int` }).from(schema.councilItems).where(eq(schema.councilItems.meetingId, m.id));
+      let pos = max;
+      const refs: string[] = [];
+      for (const a of cases) {
+        const rec = await recommendationFor(tx, a.id);
+        await tx.insert(schema.councilItems).values({ meetingId: m.id, applicationId: a.id, position: ++pos, recommendation: rec, draftDecision: draftFromRecommendation(rec) });
+        const inst = await tx.query.institutions.findFirst({ where: eq(schema.institutions.id, a.institutionId) });
+        if (inst) await notify(tx, `inst:${inst.code}`, `${a.ref} is on the council agenda`, `The council will consider ${a.ref} at its meeting ${m.ref} on ${fmtDay(m.meetingDate)}.`, `/institution/applications/${a.ref}`);
+        refs.push(a.ref);
+      }
+      for (const p of appeals) {
+        await tx.insert(schema.councilItems).values({ meetingId: m.id, appealId: p.id, position: ++pos, recommendation: p.reviewNote });
+        const inst = await tx.query.institutions.findFirst({ where: eq(schema.institutions.id, p.institutionId) });
+        if (inst) await notifyOn(tx, `inst:${inst.code}`, `Appeal ${p.ref} is on the council agenda`, `The council will hear your appeal at its meeting ${m.ref} on ${fmtDay(m.meetingDate)}.`, `/institution/appeals/${p.ref}`, "appeal", p.ref);
+        refs.push(p.ref);
+      }
+      if (refs.length) await audit(tx, { actor: user.username, action: "council.agenda.built", entity: "council_meeting", entityId: m.ref, details: { added: refs } });
+      return refs;
+    });
+    refresh(m.ref);
+    if (!added.length) return { ok: true, message: "Nothing new to add: every case and appeal ready for council is already on an agenda.", level: "warning" };
+    return { ok: true, message: `Added ${added.length} item${added.length === 1 ? "" : "s"} to ${m.ref}: ${added.join(", ")}. Each institution was told.`, level: "success" };
+  });
+}
+
+export async function setDraftDecision(itemId: number, draft: string | null): Promise<ActionResult> {
+  const user = await requirePermission("pcp.council.manage");
+  return guard(async () => {
+    const item = await db.query.councilItems.findFirst({ where: eq(schema.councilItems.id, itemId) });
+    if (!item) return fail("Agenda item not found.");
+    const m = await db.query.councilMeetings.findFirst({ where: eq(schema.councilMeetings.id, item.meetingId) });
+    if (!m || m.status === "CLOSED") return fail("The meeting is closed; its drafts can no longer change.");
+    if (item.decision) return fail("This item is already decided.");
+    const allowed = item.appealId ? ["UPHELD", "DISMISSED"] : ["APPROVED", "DEFERRED", "REJECTED"];
+    if (draft && !allowed.includes(draft)) return fail("Choose one of the listed draft decisions.");
+    await db.update(schema.councilItems).set({ draftDecision: draft }).where(eq(schema.councilItems.id, itemId));
+    await audit(db, { actor: user.username, action: "council.item.draft", entity: "council_meeting", entityId: m.ref, details: { itemId, draft } });
+    refresh(m.ref);
+    return { ok: true, message: draft ? `Draft decision set: ${DECISION_LABELS[draft].toLowerCase()}.` : "Draft decision cleared.", level: "success" };
+  });
+}
+
+export async function removeAgendaItem(itemId: number): Promise<ActionResult> {
+  const user = await requirePermission("pcp.council.manage");
+  return guard(async () => {
+    const item = await db.query.councilItems.findFirst({ where: eq(schema.councilItems.id, itemId) });
+    if (!item) return fail("Agenda item not found.");
+    const m = await db.query.councilMeetings.findFirst({ where: eq(schema.councilMeetings.id, item.meetingId) });
+    if (!m || m.status !== "PLANNED") return fail("Items can be removed only before the session starts.");
+    await db.transaction(async (tx) => {
+      await tx.delete(schema.councilItems).where(eq(schema.councilItems.id, itemId));
+      // Keep the numbering continuous.
+      const rest = await tx.select().from(schema.councilItems).where(eq(schema.councilItems.meetingId, m.id)).orderBy(asc(schema.councilItems.position));
+      for (const [i, r] of rest.entries()) if (r.position !== i + 1) await tx.update(schema.councilItems).set({ position: i + 1 }).where(eq(schema.councilItems.id, r.id));
+      await audit(tx, { actor: user.username, action: "council.item.removed", entity: "council_meeting", entityId: m.ref, details: { applicationId: item.applicationId, appealId: item.appealId } });
+    });
+    refresh(m.ref);
+    return { ok: true, message: "Removed from the agenda. It stays ready for the next meeting.", level: "success" };
+  });
+}
+
+export async function startSession(meetingRef: string): Promise<ActionResult> {
+  const user = await requirePermission("pcp.council.manage");
+  return guard(async () => {
+    const m = await getMeeting(meetingRef);
+    if (m.status !== "PLANNED") return fail(`${m.ref} is not a planned meeting.`);
+    const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.councilItems).where(eq(schema.councilItems.meetingId, m.id));
+    if (!n) return fail("The agenda is empty. Build the agenda from the ready cases first.");
+    await db.transaction(async (tx) => {
+      await tx.update(schema.councilMeetings).set({ status: "IN_SESSION", startedAt: new Date() }).where(eq(schema.councilMeetings.id, m.id));
+      await audit(tx, { actor: user.username, action: "council.session.started", entity: "council_meeting", entityId: m.ref, details: { items: n } });
+    });
+    refresh(m.ref);
+    return { ok: true, message: `${m.ref} is in session. Record a decision for each item.`, level: "success" };
+  });
+}
+
+const DecisionInput = z.object({
+  decision: z.enum(["APPROVED", "DEFERRED", "REJECTED", "UPHELD", "DISMISSED"]),
+  note: z.string().trim().default(""),
+  deferUntil: z.string().optional().nullable(),
+  grounds: z.string().trim().optional().nullable(),
+  otp: z.string().optional().nullable(),
+});
+
+/**
+ * Record the council's decision on one agenda item.
+ * Cases go through recordDecision (the case workflow owns the decision, its letter and its one-time code check);
+ * appeals are decided here: upheld reopens the original case, dismissed leaves the decision standing.
+ */
+export async function recordItemDecision(itemId: number, raw: unknown): Promise<ActionResult> {
+  const user = await requirePermission("pcp.council.decide");
+  return guard(async () => {
+    const parsed = DecisionInput.safeParse(raw);
+    if (!parsed.success) return fail("Choose a decision.");
+    const v = parsed.data;
+    const item = await db.query.councilItems.findFirst({ where: eq(schema.councilItems.id, itemId) });
+    if (!item) return fail("Agenda item not found.");
+    const m = await db.query.councilMeetings.findFirst({ where: eq(schema.councilMeetings.id, item.meetingId) });
+    if (!m) return fail("Meeting not found.");
+    if (m.status !== "IN_SESSION") return fail(m.status === "PLANNED" ? "Start the session before recording decisions." : `${m.ref} is closed; its decisions are final.`);
+    if (item.decision) return fail("This item already has a recorded decision.");
+
+    if (item.applicationId) {
+      if (!["APPROVED", "DEFERRED", "REJECTED"].includes(v.decision)) return fail("A case is approved, deferred or rejected.");
+      const app = await db.query.applications.findFirst({ where: eq(schema.applications.id, item.applicationId) });
+      if (!app) return fail("Case not found.");
+      if (app.status !== "COUNCIL_REVIEW") return fail(`${app.ref} is no longer awaiting a council decision (it was decided on the case file).`);
+      let note = v.note;
+      let grounds: string | undefined;
+      let deferUntil: string | undefined;
+      if (v.decision === "DEFERRED") {
+        if (note.length < 5) return fail("A deferral needs a reason. Say what must happen before the case returns.");
+        if (!v.deferUntil || !/^\d{4}-\d{2}-\d{2}$/.test(v.deferUntil)) return fail("A deferral needs a date to return. Pick one.");
+        if (v.deferUntil <= new Date().toISOString().slice(0, 10)) return fail("The return date must be after today.");
+        deferUntil = v.deferUntil;
+      }
+      if (v.decision === "REJECTED") {
+        grounds = (v.grounds || note).trim();
+        if (grounds.length < 5) return fail("A rejection must state its grounds.");
+        if (!note) note = grounds;
+      }
+      const r = await recordDecision(app.ref, v.decision as "APPROVED" | "DEFERRED" | "REJECTED", note, { deferUntil, grounds, otp: v.otp ?? undefined });
+      if (!r.ok) return r;
+      const fresh = await db.query.applications.findFirst({ where: eq(schema.applications.id, app.id) });
+      if (fresh?.status === "COUNCIL_REVIEW") return fail(`The decision on ${app.ref} was not recorded. Try again.`);
+      await db.transaction(async (tx) => {
+        await tx
+          .update(schema.councilItems)
+          .set({ decision: v.decision, decisionNote: grounds && v.decision === "REJECTED" ? grounds : note || null, deferUntil: deferUntil ?? null, decidedBy: user.username, decidedAt: new Date() })
+          .where(eq(schema.councilItems.id, item.id));
+        await audit(tx, { actor: user.username, action: "council.item.decided", entity: "council_meeting", entityId: m.ref, details: { case: app.ref, decision: v.decision, deferUntil } });
+      });
+      refresh(m.ref);
+      return { ok: true, message: `${app.ref}: ${DECISION_LABELS[v.decision].toLowerCase()}. The institution is notified.`, level: "success" };
+    }
+
+    // Appeal
+    if (!["UPHELD", "DISMISSED"].includes(v.decision)) return fail("An appeal is upheld or dismissed.");
+    const appeal = await db.query.appeals.findFirst({ where: eq(schema.appeals.id, item.appealId ?? -1) });
+    if (!appeal) return fail("Appeal not found.");
+    if (["UPHELD", "DISMISSED", "WITHDRAWN"].includes(appeal.status)) return fail(`${appeal.ref} is already closed.`);
+    const note = v.note || (v.decision === "UPHELD" ? "The council found the grounds of appeal valid and will decide the case afresh." : "");
+    if (v.decision === "DISMISSED" && note.length < 5) return fail("Dismissing an appeal needs the council's reasons.");
+    await requireOtp(user.username, `decision:${appeal.ref}`, v.otp);
+    const original = await db.query.applications.findFirst({ where: eq(schema.applications.id, appeal.applicationId) });
+    const inst = await db.query.institutions.findFirst({ where: eq(schema.institutions.id, appeal.institutionId) });
+    if (!original || !inst) return fail("The case under appeal was not found.");
+    if (v.decision === "UPHELD" && !["REJECTED", "DEFERRED"].includes(original.status))
+      return fail(`${original.ref} is ${original.status.toLowerCase().replace(/_/g, " ")} now, so it cannot be reopened. Dismiss the appeal or ask the officer to check the case.`);
+    await db.transaction(async (tx) => {
+      const now = new Date();
+      await tx.update(schema.appeals).set({ status: v.decision, decidedBy: user.username, decisionNote: note, decidedAt: now }).where(eq(schema.appeals.id, appeal.id));
+      await tx.update(schema.councilItems).set({ decision: v.decision, decisionNote: note, decidedBy: user.username, decidedAt: now }).where(eq(schema.councilItems.id, item.id));
+      if (v.decision === "UPHELD") {
+        await reopenCaseForCouncil(tx, { applicationId: original.id, appealRef: appeal.ref, meetingRef: m.ref, actor: user.username, actorRole: user.role });
+        await audit(tx, { actor: user.username, action: "application.reopened", entity: "application", entityId: original.ref, details: { appeal: appeal.ref, from: original.status, to: "COUNCIL_REVIEW" } });
+      }
+      const letter = await fileAppealLetter(tx, { appeal, caseRef: original.ref, outcome: v.decision as "UPHELD" | "DISMISSED", note, meetingRef: m.ref, by: { username: user.username, name: user.name } });
+      await tx.update(schema.appeals).set({ letterDocumentId: letter.id }).where(eq(schema.appeals.id, appeal.id));
+      await notifyOn(
+        tx,
+        `inst:${inst.code}`,
+        `Appeal ${appeal.ref} ${v.decision === "UPHELD" ? "upheld" : "dismissed"}`,
+        v.decision === "UPHELD" ? `The council upheld your appeal. ${original.ref} returns to the council for a fresh decision. The decision letter is on the appeal.` : `The council dismissed your appeal. The decision on ${original.ref} stands. The decision letter is on the appeal.`,
+        `/institution/appeals/${appeal.ref}`,
+        "appeal",
+        appeal.ref,
+      );
+      await notifyOn(tx, "role:pcp_officer", `Appeal ${appeal.ref} ${v.decision === "UPHELD" ? "upheld" : "dismissed"}`, v.decision === "UPHELD" ? `${original.ref} is back in council review.` : `The decision on ${original.ref} stands.`, `/pcp/appeals/${appeal.ref}`, "appeal", appeal.ref);
+      await audit(tx, { actor: user.username, action: v.decision === "UPHELD" ? "appeal.upheld" : "appeal.dismissed", entity: "appeal", entityId: appeal.ref, details: { meeting: m.ref, case: original.ref, letter: letter.id, note } });
+      await audit(tx, { actor: user.username, action: "council.item.decided", entity: "council_meeting", entityId: m.ref, details: { appeal: appeal.ref, decision: v.decision } });
+    });
+    refresh(m.ref);
+    revalidatePath(`/pcp/appeals/${appeal.ref}`);
+    revalidatePath(`/pcp/applications/${original.ref}`);
+    return {
+      ok: true,
+      message: v.decision === "UPHELD" ? `${appeal.ref} upheld: ${original.ref} is back in council review and the decision letter is filed.` : `${appeal.ref} dismissed: the decision on ${original.ref} stands. The decision letter is filed.`,
+      level: "success",
+    };
+  });
+}
+
+/** Close the meeting and file its minutes. Undecided items are carried forward to the next agenda. */
+export async function closeMeeting(meetingRef: string): Promise<ActionResult> {
+  const user = await requirePermission("pcp.council.manage");
+  return guard(async () => {
+    const m = await getMeeting(meetingRef);
+    if (m.status !== "IN_SESSION") return fail(m.status === "PLANNED" ? "Start the session first." : `${m.ref} is already closed.`);
+    const items = await db.select().from(schema.councilItems).where(eq(schema.councilItems.meetingId, m.id));
+    const open = items.filter((i) => !i.decision).length;
+    const doc = await db.transaction(async (tx) => {
+      await tx.update(schema.councilMeetings).set({ status: "CLOSED", closedAt: new Date() }).where(eq(schema.councilMeetings.id, m.id));
+      const d = await fileMinutes(tx, m.id, { username: user.username, name: user.name });
+      await tx.update(schema.councilMeetings).set({ minutesDocumentId: d.id }).where(eq(schema.councilMeetings.id, m.id));
+      await audit(tx, { actor: user.username, action: "council.meeting.closed", entity: "council_meeting", entityId: m.ref, details: { items: items.length, carriedForward: open, minutes: d.id, sha256: d.sha256 } });
+      await notify(tx, "role:pcp_officer", `Minutes of ${m.ref} filed`, `${items.length - open} decision${items.length - open === 1 ? "" : "s"} recorded${open ? `; ${open} item${open === 1 ? "" : "s"} carried forward` : ""}.`, `/pcp/council/${m.ref}`);
+      return d;
+    });
+    refresh(m.ref);
+    return { ok: true, message: `${m.ref} closed. Minutes filed (${doc.fileName})${open ? `; ${open} undecided item${open === 1 ? " is" : "s are"} carried forward` : ""}.`, level: "success" };
+  });
+}
+
+/** For the case screen: is this case on a council agenda, or when was it last decided at a meeting? */
+export async function agendaForCase(caseRef: string) {
+  const user = await requireUser("pcp");
+  if (!can(user.roles, "pcp.app.view") && !can(user.roles, "pcp.council.manage")) return null;
+  const app = await db.query.applications.findFirst({ where: eq(schema.applications.ref, caseRef) });
+  if (!app) return null;
+  const rows = await db
+    .select({ ref: schema.councilMeetings.ref, date: schema.councilMeetings.meetingDate, status: schema.councilMeetings.status, position: schema.councilItems.position, decision: schema.councilItems.decision, decidedAt: schema.councilItems.decidedAt })
+    .from(schema.councilItems)
+    .innerJoin(schema.councilMeetings, eq(schema.councilMeetings.id, schema.councilItems.meetingId))
+    .where(eq(schema.councilItems.applicationId, app.id))
+    .orderBy(desc(schema.councilItems.id));
+  const open = rows.find((r) => r.status !== "CLOSED" && !r.decision);
+  if (open) return { kind: "scheduled" as const, meetingRef: open.ref, date: open.date, status: open.status, position: open.position };
+  const decided = rows.find((r) => r.decision);
+  if (decided) return { kind: "decided" as const, meetingRef: decided.ref, date: decided.date, status: decided.status, decision: decided.decision! };
+  return null;
+}

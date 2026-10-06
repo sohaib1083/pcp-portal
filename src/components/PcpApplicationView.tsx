@@ -11,6 +11,7 @@ import type { AppDetail } from "@/lib/appdetail";
 import { formatPKR } from "@/lib/format";
 import { AppHeader, CertificateCard, ChecksCard, DataDescriptions, DocumentsCard, TimelineCard } from "./AppParts";
 import { Avatar, Pill, fmtDate } from "./common";
+import CouncilAgendaNote from "./CouncilAgendaNote";
 import { FillDemo } from "./demo-helpers";
 
 function ActionBlock({ title, sub, children, extra }: { title: string; sub?: string; children: React.ReactNode; extra?: React.ReactNode }) {
@@ -193,6 +194,7 @@ export default function PcpApplicationView({ d, roles, username, inspectors }: {
           </div>
         }
       />
+      <CouncilAgendaNote caseRef={d.app.ref} status={s} />
       <Row gutter={18}>
         <Col xs={24} lg={15}>
           {inspection ? (
