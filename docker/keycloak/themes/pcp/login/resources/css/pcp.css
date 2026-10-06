@@ -1,0 +1,618 @@
+/* PCP Digital Portal: Keycloak login theme overrides (loaded after the stock css/login.css). */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+:root {
+  --pcp-forest: #0a3d2e;
+  --pcp-primary: #0b6e4f;
+  --pcp-primary-hover: #0d8460;
+  --pcp-tint: #e8f3ee;
+  --pcp-gold: #c8a24a;
+  --pcp-text: #0f1f1a;
+  --pcp-muted: #5b6b64;
+  --pcp-border: #e3e8e5;
+  --pcp-input-border: #d3dcd7;
+  --pcp-ring: rgba(11, 110, 79, 0.18);
+  --pcp-danger: #b42318;
+  --pcp-danger-bg: #fef3f2;
+  --pcp-danger-border: #f6cdc9;
+  --pcp-font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* Re-point the PatternFly 4 globals the stock templates rely on. */
+  --pf-global--FontFamily--sans-serif: var(--pcp-font);
+  --pf-global--FontFamily--heading--sans-serif: var(--pcp-font);
+  --pf-global--primary-color--100: var(--pcp-primary);
+  --pf-global--primary-color--200: var(--pcp-primary-hover);
+  --pf-global--link--Color: var(--pcp-primary);
+  --pf-global--link--Color--hover: var(--pcp-primary-hover);
+  --pf-global--Color--100: var(--pcp-text);
+  --pf-global--Color--200: var(--pcp-muted);
+  --pf-global--BorderColor--100: var(--pcp-border);
+}
+
+/* ---------- Page ---------- */
+html.login-pf {
+  height: 100%;
+  background: var(--pcp-forest);
+}
+
+html.login-pf body {
+  min-height: 100%;
+  margin: 0;
+  background-color: var(--pcp-forest);
+  background-image:
+    radial-gradient(900px 520px at 50% -8%, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0) 70%),
+    radial-gradient(700px 500px at 100% 100%, rgba(200, 162, 74, 0.06), rgba(200, 162, 74, 0) 70%),
+    linear-gradient(135deg, #0a3d2e 0%, #0b5a41 60%, #0b6e4f 100%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  background-size: cover;
+  font-family: var(--pcp-font);
+  color: var(--pcp-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html.login-pf body,
+.login-pf-page input,
+.login-pf-page button,
+.login-pf-page label,
+.login-pf-page h1 {
+  font-family: var(--pcp-font);
+}
+
+.login-pf-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px 40px;
+  box-sizing: border-box;
+}
+
+/* ---------- Realm header with logo mark ---------- */
+.login-pf-page .login-pf-page-header,
+#kc-header {
+  width: 100%;
+  max-width: 440px;
+  margin: 0 0 24px;
+  padding: 0;
+  float: none;
+  text-align: center;
+  color: #ffffff;
+  white-space: normal;
+}
+
+/* Block (not flex) so "<b>PCP</b> Digital Portal" keeps normal word spacing. */
+#kc-header-wrapper {
+  display: block;
+  padding: 0;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: #ffffff;
+}
+
+#kc-header-wrapper b,
+#kc-header-wrapper strong {
+  font-weight: 700;
+}
+
+#kc-header-wrapper::before {
+  content: "";
+  display: inline-block;
+  width: 36px;
+  height: 36px;
+  margin: -4px 12px 0 0;
+  vertical-align: middle;
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23ffffff'/%3E%3Cpath d='M20 6.5l10.5 4v8.7c0 6.9-4.5 12.1-10.5 14.3-6-2.2-10.5-7.4-10.5-14.3v-8.7l10.5-4z' fill='%230b6e4f'/%3E%3Cg transform='rotate(-40 20 20)'%3E%3Crect x='13' y='16.6' width='14' height='6.8' rx='3.4' fill='%23ffffff'/%3E%3Crect x='20' y='16.6' width='7' height='6.8' rx='3.4' fill='%23c8a24a'/%3E%3Crect x='20' y='16.6' width='3.4' height='6.8' fill='%23c8a24a'/%3E%3C/g%3E%3C/svg%3E") center / 36px 36px no-repeat;
+}
+
+/* ---------- Card ---------- */
+.login-pf-page .card-pf {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 32px 36px 32px;
+  box-sizing: border-box;
+  background: #ffffff;
+  border: 0;
+  border-top: 0;
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+  color: var(--pcp-text);
+}
+
+.login-pf-page .login-pf-header {
+  margin: 0 0 20px;
+  padding: 0;
+}
+
+.login-pf-page .login-pf-header h1,
+h1#kc-page-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  text-align: left;
+  color: var(--pcp-text);
+}
+
+/* Small gold accent under the page title. */
+h1#kc-page-title::after {
+  content: "";
+  display: block;
+  width: 28px;
+  height: 3px;
+  margin-top: 10px;
+  border-radius: 2px;
+  background: var(--pcp-gold);
+}
+
+.login-pf-page .login-pf-header .subtitle,
+.login-pf-page .subtitle {
+  margin: 0 0 4px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--pcp-muted);
+}
+
+#kc-content,
+#kc-content-wrapper,
+#kc-form-wrapper {
+  margin-top: 0;
+}
+
+#kc-content-wrapper .row,
+.login-pf-page .form-group {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* The stock form uses bootstrap columns inside the card; flatten them. */
+#kc-content-wrapper [class*="col-"] {
+  float: none;
+  width: 100%;
+  margin-left: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.login-pf-page .form-group {
+  margin-bottom: 16px;
+}
+
+.login-pf-page form > .form-group:last-child {
+  margin-bottom: 0;
+}
+
+/* ---------- Labels and inputs ---------- */
+.login-pf-page .pf-c-form__label,
+.login-pf-page .pf-c-form__label-text,
+.login-pf-page .control-label {
+  display: inline-block;
+  margin: 0 0 6px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--pcp-text);
+}
+
+.login-pf-page .pf-c-form-control,
+.login-pf-page .form-control {
+  height: 40px;
+  padding: 0 12px;
+  font-size: 15px;
+  line-height: 38px;
+  color: var(--pcp-text);
+  background-color: #ffffff;
+  border: 1px solid var(--pcp-input-border);
+  border-radius: 8px;
+  box-shadow: none;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  --pf-c-form-control--BorderBottomColor: var(--pcp-input-border);
+}
+
+.login-pf-page textarea.pf-c-form-control {
+  height: auto;
+  line-height: 1.5;
+  padding: 8px 12px;
+}
+
+.login-pf-page .pf-c-form-control:hover {
+  border-color: #b9c6bf;
+}
+
+.login-pf-page .pf-c-form-control:focus,
+.login-pf-page .form-control:focus {
+  padding-bottom: 0;
+  border-color: var(--pcp-primary);
+  border-bottom-width: 1px;
+  box-shadow: 0 0 0 3px var(--pcp-ring);
+  outline: none;
+}
+
+.login-pf-page .pf-c-form-control[aria-invalid="true"] {
+  padding-right: 12px;
+  border-color: var(--pcp-danger);
+  border-bottom-width: 1px;
+  background-image: none;
+}
+
+.login-pf-page .pf-c-form-control[aria-invalid="true"]:focus {
+  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.14);
+}
+
+/* Password field + visibility toggle behave as one control. */
+.login-pf-page .pf-c-input-group {
+  border-radius: 8px;
+  transition: box-shadow 0.15s ease;
+}
+
+.login-pf-page .pf-c-input-group > .pf-c-form-control {
+  border-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.login-pf-page .pf-c-input-group > .pf-c-form-control:focus {
+  box-shadow: none;
+}
+
+.login-pf-page .pf-c-input-group:focus-within {
+  box-shadow: 0 0 0 3px var(--pcp-ring);
+}
+
+.login-pf-page .pf-c-input-group:focus-within > .pf-c-form-control,
+.login-pf-page .pf-c-input-group:focus-within > .pf-c-button.pf-m-control {
+  border-color: var(--pcp-primary);
+}
+
+.login-pf-page .pf-c-input-group > .pf-c-button.pf-m-control {
+  height: 40px;
+  min-width: 44px;
+  padding: 0 12px;
+  color: var(--pcp-muted);
+  background: #ffffff;
+  border: 1px solid var(--pcp-input-border);
+  border-left: 0;
+  border-radius: 0 8px 8px 0;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.login-pf-page .pf-c-input-group > .pf-c-button.pf-m-control::after {
+  display: none;
+}
+
+.login-pf-page .pf-c-input-group > .pf-c-button.pf-m-control:hover {
+  color: var(--pcp-primary);
+}
+
+.login-pf-page .pf-c-input-group > .pf-c-form-control[aria-invalid="true"] + .pf-c-button.pf-m-control {
+  border-color: var(--pcp-danger);
+}
+
+/* Field-level errors (e.g. "Invalid username or password."). */
+.login-pf-page .pf-c-form__helper-text.pf-m-error,
+.login-pf-page .kc-feedback-text.pf-m-error,
+#input-error {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--pcp-danger);
+}
+
+/* ---------- Options row (remember me, forgot password, sign out other devices) ---------- */
+.login-pf-page .login-pf-settings,
+#kc-form-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--pcp-muted);
+}
+
+/* The login form always renders this row; hide it when it holds no checkbox or link. */
+.login-pf-page .login-pf-settings {
+  margin-bottom: 0;
+}
+
+.login-pf-page .login-pf-settings:not(:has(input, a)) {
+  display: none;
+}
+
+#kc-form-options .checkbox,
+.login-pf-page .checkbox {
+  margin: 0;
+  color: var(--pcp-muted);
+}
+
+.login-pf-page .checkbox label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 0;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--pcp-muted);
+  cursor: pointer;
+}
+
+.login-pf-page .checkbox input[type="checkbox"] {
+  position: static;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--pcp-primary);
+}
+
+/* ---------- Buttons ---------- */
+#kc-form-buttons {
+  margin-top: 24px;
+  margin-bottom: 0;
+}
+
+#kc-login,
+.login-pf-page .pf-c-button.pf-m-primary,
+.login-pf-page .btn-primary {
+  display: block;
+  width: 100%;
+  height: 44px;
+  margin: 0;
+  padding: 0 16px;
+  font-family: var(--pcp-font);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 44px;
+  letter-spacing: 0.005em;
+  color: #ffffff;
+  background: var(--pcp-primary);
+  background-image: none;
+  border: 0;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(10, 61, 46, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  text-shadow: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.05s ease;
+}
+
+#kc-login::after,
+.login-pf-page .pf-c-button.pf-m-primary::after {
+  display: none;
+}
+
+#kc-login:hover,
+#kc-login:focus,
+.login-pf-page .pf-c-button.pf-m-primary:hover,
+.login-pf-page .pf-c-button.pf-m-primary:focus,
+.login-pf-page .btn-primary:hover,
+.login-pf-page .btn-primary:focus {
+  color: #ffffff;
+  background: var(--pcp-primary-hover);
+  outline: none;
+}
+
+#kc-login:focus-visible,
+.login-pf-page .pf-c-button.pf-m-primary:focus-visible,
+.login-pf-page .btn-primary:focus-visible {
+  box-shadow: 0 0 0 3px rgba(11, 110, 79, 0.3);
+}
+
+#kc-login:active,
+.login-pf-page .pf-c-button.pf-m-primary:active,
+.login-pf-page .btn-primary:active {
+  transform: translateY(1px);
+}
+
+#kc-login[disabled],
+.login-pf-page .pf-c-button.pf-m-primary[disabled] {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+/* Secondary buttons (e.g. "Cancel" on app-initiated actions). */
+.login-pf-page .btn-default,
+.login-pf-page .pf-c-button.pf-m-secondary {
+  height: 44px;
+  margin-top: 10px;
+  padding: 0 16px;
+  font-family: var(--pcp-font);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--pcp-primary);
+  background: #ffffff;
+  background-image: none;
+  border: 1px solid var(--pcp-border);
+  border-radius: 8px;
+  box-shadow: none;
+  width: 100%;
+}
+
+.login-pf-page .btn-default:hover,
+.login-pf-page .pf-c-button.pf-m-secondary:hover {
+  background: var(--pcp-tint);
+  border-color: #cfe3d9;
+}
+
+/* ---------- Links ---------- */
+.login-pf a,
+.login-pf-page a {
+  color: var(--pcp-primary);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.login-pf a:hover,
+.login-pf a:focus,
+.login-pf-page a:hover,
+.login-pf-page a:focus {
+  color: var(--pcp-primary-hover);
+  text-decoration: underline;
+}
+
+/* ---------- Alerts (global messages such as "Account is disabled") ---------- */
+/* Variants below use one more class than this base rule, so they always win. */
+.login-pf-page .pf-c-alert,
+.login-pf-page .pf-c-alert.pf-m-inline {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--pcp-text);
+  background: var(--pcp-tint);
+  border: 1px solid #cfe3d9;
+  border-radius: 8px;
+  box-shadow: none;
+  grid-template-columns: none;
+}
+
+.login-pf-page .pf-c-alert.pf-m-inline::before {
+  display: none;
+}
+
+.login-pf-page .pf-c-alert .pf-c-alert__icon {
+  margin: 0;
+  padding-top: 1px;
+  font-size: 16px;
+  line-height: 1.2;
+  color: var(--pcp-primary);
+}
+
+.login-pf-page .pf-c-alert .pf-c-alert__title,
+.login-pf-page .pf-c-alert .kc-feedback-text {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: inherit;
+  word-break: normal;
+}
+
+.login-pf-page .pf-c-alert.pf-m-inline.pf-m-danger {
+  color: var(--pcp-danger);
+  background: var(--pcp-danger-bg);
+  border-color: var(--pcp-danger-border);
+}
+
+.login-pf-page .pf-c-alert.pf-m-danger .pf-c-alert__icon {
+  color: var(--pcp-danger);
+}
+
+.login-pf-page .pf-c-alert.pf-m-inline.pf-m-warning {
+  color: #7a5a12;
+  background: #fdf7e7;
+  border-color: #efdcae;
+}
+
+.login-pf-page .pf-c-alert.pf-m-warning .pf-c-alert__icon {
+  color: var(--pcp-gold);
+}
+
+.login-pf-page .pf-c-alert.pf-m-success .pf-c-alert__icon,
+.login-pf-page .pf-c-alert.pf-m-info .pf-c-alert__icon {
+  color: var(--pcp-primary);
+}
+
+/* ---------- Misc stock elements ---------- */
+#kc-username {
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+#kc-attempted-username {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--pcp-text);
+}
+
+#kc-info {
+  margin: 24px -36px -32px;
+}
+
+#kc-info-wrapper {
+  padding: 14px 36px;
+  font-size: 14px;
+  color: var(--pcp-muted);
+  background: #f6f8f7;
+  border-top: 1px solid var(--pcp-border);
+  border-radius: 0 0 12px 12px;
+}
+
+p.instruction,
+.login-pf-page .instruction {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--pcp-muted);
+}
+
+/* ---------- Footnote under the card ---------- */
+.login-pf-page::after {
+  content: "Demo system \00B7  fictional data \00B7  secured by Keycloak SSO";
+  display: block;
+  width: 100%;
+  max-width: 440px;
+  margin-top: 20px;
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ---------- Small screens ---------- */
+@media (max-width: 767px) {
+  html.login-pf body {
+    background-attachment: scroll;
+  }
+
+  .login-pf-page {
+    justify-content: flex-start;
+    padding: 32px 16px 28px;
+  }
+
+  #kc-header {
+    padding: 0;
+    text-align: center;
+  }
+
+  #kc-header-wrapper {
+    padding: 0;
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: #ffffff;
+  }
+
+  .login-pf-page .card-pf {
+    max-width: 440px;
+    margin: 0 auto;
+    padding: 24px 20px 24px;
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+  }
+
+  #kc-info {
+    margin: 20px -20px -24px;
+  }
+
+  #kc-info-wrapper {
+    padding: 12px 20px;
+  }
+}

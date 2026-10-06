@@ -1,0 +1,281 @@
+import { sql } from "drizzle-orm";
+import {
+  pgTable,
+  serial,
+  bigserial,
+  text,
+  integer,
+  real,
+  timestamp,
+  date,
+  jsonb,
+  uniqueIndex,
+  index,
+  boolean,
+} from "drizzle-orm/pg-core";
+
+const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+
+export const institutions = pgTable("institutions", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(), // PCP-UNI-000101
+  shortCode: text("short_code").notNull().unique(), // RUH
+  name: text("name").notNull(),
+  province: text("province").notNull(),
+  city: text("city").notNull(),
+  sector: text("sector").notNull(), // Public | Private
+  status: text("status").notNull().default("ACTIVE"), // ACTIVE | PENDING | SUSPENDED
+  affiliatedUniversity: text("affiliated_university"),
+  establishedYear: integer("established_year"),
+  createdAt: createdAt(),
+});
+
+export const programs = pgTable(
+  "programs",
+  {
+    id: serial("id").primaryKey(),
+    institutionId: integer("institution_id").notNull().references(() => institutions.id),
+    type: text("type").notNull(), // PHARMD | TECH
+    nocStatus: text("noc_status").notNull().default("NONE"), // APPROVED | PENDING | NONE | REJECTED
+    nocNumber: text("noc_number"),
+    approvedIntake: integer("approved_intake").notNull().default(0),
+    accreditationStatus: text("accreditation_status").notNull().default("NONE"), // VALID | EXPIRED | PENDING | NONE
+    accreditationValidUntil: date("accreditation_valid_until"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("programs_inst_type").on(t.institutionId, t.type)],
+);
+
+export const accreditationHistory = pgTable("accreditation_history", {
+  id: serial("id").primaryKey(),
+  programId: integer("program_id").notNull().references(() => programs.id),
+  year: integer("year").notNull(),
+  status: text("status").notNull(),
+  validFrom: integer("valid_from").notNull(),
+  validUntil: integer("valid_until").notNull(),
+  intake: integer("intake").notNull(),
+  decision: text("decision").notNull(),
+});
+
+export const faculty = pgTable(
+  "faculty",
+  {
+    id: serial("id").primaryKey(),
+    pcpId: text("pcp_id").notNull().unique(), // PCP-FAC-000458
+    cnic: text("cnic").notNull().unique(),
+    fullName: text("full_name").notNull(),
+    fatherName: text("father_name").notNull(),
+    nameNorm: text("name_norm").notNull(),
+    qualification: text("qualification").notNull(), // PhD | MPhil | PharmD | M.Pharm
+    specialization: text("specialization").notNull(),
+    pcpRegNo: text("pcp_reg_no"),
+    designation: text("designation").notNull(),
+    verificationStatus: text("verification_status").notNull().default("PENDING"), // VERIFIED | PENDING | FLAGGED
+    createdAt: createdAt(),
+  },
+  (t) => [index("faculty_name_trgm").using("gin", sql`${t.nameNorm} gin_trgm_ops`)],
+);
+
+// One faculty member can be ACTIVE at only one institution: enforced by the database.
+export const facultyLinks = pgTable(
+  "faculty_links",
+  {
+    id: serial("id").primaryKey(),
+    facultyId: integer("faculty_id").notNull().references(() => faculty.id),
+    institutionId: integer("institution_id").notNull().references(() => institutions.id),
+    programType: text("program_type").notNull(),
+    status: text("status").notNull().default("ACTIVE"), // ACTIVE | ENDED
+    startDate: date("start_date").notNull(),
+    endDate: date("end_date"),
+    createdBy: text("created_by").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("one_active_institution_per_faculty").on(t.facultyId).where(sql`status = 'ACTIVE'`)],
+);
+
+export const students = pgTable("students", {
+  id: serial("id").primaryKey(),
+  pcpId: text("pcp_id").notNull().unique(), // PCP-RUH-2026-00000001
+  institutionId: integer("institution_id").notNull().references(() => institutions.id),
+  programType: text("program_type").notNull(),
+  cnic: text("cnic").notNull().unique(),
+  fullName: text("full_name").notNull(),
+  fatherName: text("father_name").notNull(),
+  mobile: text("mobile"),
+  email: text("email"),
+  shift: text("shift").notNull(), // Morning | Evening | Self-finance
+  enrollmentYear: integer("enrollment_year").notNull(),
+  currentYear: integer("current_year").notNull().default(1),
+  status: text("status").notNull().default("ENROLLED"), // ENROLLED | PROMOTED | REPEAT | GRADUATED | WITHDRAWN
+  createdAt: createdAt(),
+});
+
+export const applications = pgTable("applications", {
+  id: serial("id").primaryKey(),
+  ref: text("ref").notNull().unique(), // NOC-2026-0001
+  institutionId: integer("institution_id").notNull().references(() => institutions.id),
+  kind: text("kind").notNull(), // NOC | ACCREDITATION | RENEWAL
+  programType: text("program_type").notNull(), // PHARMD | TECH
+  status: text("status").notNull().default("DRAFT"),
+  data: jsonb("data").$type<ApplicationData>().notNull().default({}),
+  checks: jsonb("checks").$type<CheckResult[]>(),
+  feeAmount: integer("fee_amount").notNull().default(0),
+  feePsid: text("fee_psid"),
+  feePaidAt: timestamp("fee_paid_at", { withTimezone: true }),
+  feePaidBy: text("fee_paid_by"),
+  feeMethod: text("fee_method"),
+  assignedOfficer: text("assigned_officer"),
+  submittedBy: text("submitted_by"),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  decision: text("decision"),
+  decisionNote: text("decision_note"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  certificateNo: text("certificate_no").unique(),
+  issuedAt: timestamp("issued_at", { withTimezone: true }),
+  validUntil: date("valid_until"),
+  createdBy: text("created_by").notNull(),
+  createdAt: createdAt(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const applicationEvents = pgTable("application_events", {
+  id: serial("id").primaryKey(),
+  applicationId: integer("application_id").notNull().references(() => applications.id),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  actor: text("actor").notNull(),
+  actorRole: text("actor_role").notNull(),
+  note: text("note"),
+  createdAt: createdAt(),
+});
+
+export const deficiencies = pgTable("deficiencies", {
+  id: serial("id").primaryKey(),
+  ref: text("ref").notNull().unique(), // DF-2026-00452
+  applicationId: integer("application_id").notNull().references(() => applications.id),
+  institutionId: integer("institution_id").notNull().references(() => institutions.id),
+  criterion: text("criterion").notNull(),
+  requiredAction: text("required_action").notNull(),
+  evidenceRequired: text("evidence_required").notNull(),
+  dueDate: date("due_date").notNull(),
+  status: text("status").notNull().default("OUTSTANDING"), // OUTSTANDING | RESPONDED | ACCEPTED | REJECTED
+  responseNote: text("response_note"),
+  respondedBy: text("responded_by"),
+  respondedAt: timestamp("responded_at", { withTimezone: true }),
+  reviewedBy: text("reviewed_by"),
+  reviewNote: text("review_note"),
+  raisedBy: text("raised_by").notNull(),
+  createdAt: createdAt(),
+});
+
+export const inspections = pgTable("inspections", {
+  id: serial("id").primaryKey(),
+  applicationId: integer("application_id").notNull().references(() => applications.id),
+  institutionId: integer("institution_id").notNull().references(() => institutions.id),
+  inspector: text("inspector").notNull(),
+  scheduledFor: date("scheduled_for").notNull(),
+  status: text("status").notNull().default("SCHEDULED"), // SCHEDULED | SUBMITTED
+  checklist: jsonb("checklist").$type<ChecklistItem[]>(),
+  summary: text("summary"),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  createdBy: text("created_by").notNull(),
+  createdAt: createdAt(),
+});
+
+export const documents = pgTable("documents", {
+  id: serial("id").primaryKey(),
+  institutionId: integer("institution_id").notNull().references(() => institutions.id),
+  folder: text("folder").notNull(), // e.g. noc-applications/NOC-2026-0001
+  docType: text("doc_type").notNull(),
+  fileName: text("file_name").notNull(),
+  storageKey: text("storage_key").notNull(),
+  version: integer("version").notNull().default(1),
+  sizeBytes: integer("size_bytes").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sha256: text("sha256").notNull(),
+  verificationStatus: text("verification_status").notNull().default("PENDING"),
+  expiryDate: date("expiry_date"),
+  applicationId: integer("application_id").references(() => applications.id),
+  deficiencyId: integer("deficiency_id").references(() => deficiencies.id),
+  uploadedBy: text("uploaded_by").notNull(),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  audience: text("audience").notNull(), // inst:PCP-UNI-000101 | role:pcp_secretary | user:pcp.inspector
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  link: text("link"),
+  channel: text("channel").notNull().default("in-app+email"),
+  readAt: timestamp("read_at", { withTimezone: true }),
+  createdAt: createdAt(),
+});
+
+// App-side user directory, kept in step with Keycloak by the Super Admin screens.
+export const staff = pgTable("staff", {
+  username: text("username").primaryKey(),
+  displayName: text("display_name").notNull(),
+  email: text("email"),
+  role: text("role").notNull(),
+  province: text("province"), // inspectors: used for the conflict-of-interest rule
+  institutionId: integer("institution_id").references(() => institutions.id),
+  active: boolean("active").notNull().default(true),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const duplicateFlags = pgTable("duplicate_flags", {
+  id: serial("id").primaryKey(),
+  entity: text("entity").notNull(), // faculty
+  recordId: integer("record_id").notNull(),
+  matchRecordId: integer("match_record_id").notNull(),
+  score: real("score").notNull(),
+  reason: text("reason").notNull(),
+  status: text("status").notNull().default("OPEN"), // OPEN | SAME_PERSON | DIFFERENT
+  resolvedBy: text("resolved_by"),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  createdAt: createdAt(),
+});
+
+export const rules = pgTable("rules", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull(),
+  version: integer("version").notNull(),
+  value: jsonb("value").notNull(),
+  description: text("description").notNull(),
+  effectiveFrom: date("effective_from").notNull(),
+});
+
+// Tamper-evident audit log: each row stores the hash of the previous row.
+export const auditLog = pgTable("audit_log", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  ts: timestamp("ts", { withTimezone: true }).notNull().defaultNow(),
+  actor: text("actor").notNull(),
+  action: text("action").notNull(),
+  entity: text("entity").notNull(),
+  entityId: text("entity_id").notNull(),
+  details: jsonb("details").notNull().default({}),
+  prevHash: text("prev_hash").notNull(),
+  hash: text("hash").notNull(),
+});
+
+export type ApplicationData = {
+  campus?: string;
+  proposedIntake?: number;
+  classrooms?: number;
+  labs?: number;
+  labList?: string;
+  libraryBooks?: number;
+  libraryJournals?: number;
+  buildingAreaSqft?: number;
+  notes?: string;
+};
+
+export type CheckResult = { key: string; label: string; ok: boolean; detail: string };
+
+export type ChecklistItem = {
+  criterion: string;
+  result: "COMPLIANT" | "PARTIAL" | "NON_COMPLIANT" | "NA";
+  remarks: string;
+};

@@ -1,0 +1,470 @@
+{
+  "realm": "pcp",
+  "enabled": true,
+  "sslRequired": "none",
+  "displayName": "Pharmacy Council of Pakistan (Demo)",
+  "displayNameHtml": "<b>PCP</b> Digital Portal (Demo)",
+  "loginTheme": "pcp",
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "bruteForceProtected": true,
+  "passwordPolicy": "length(8)",
+  "roles": {
+    "realm": [
+      {
+        "name": "inst_poc",
+        "description": "Institution Focal Person (POC)"
+      },
+      {
+        "name": "pcp_admin",
+        "description": "PCP Super Admin: users and institutions"
+      },
+      {
+        "name": "pcp_officer",
+        "description": "PCP Officer: processes applications"
+      },
+      {
+        "name": "pcp_inspector",
+        "description": "PCP Inspector: assigned inspections only"
+      },
+      {
+        "name": "pcp_secretary",
+        "description": "PCP Secretary: council decisions and certificates"
+      }
+    ]
+  },
+  "groups": [
+    {
+      "name": "institutions",
+      "path": "/institutions",
+      "subGroups": [
+        {
+          "name": "PCP-UNI-000101",
+          "path": "/institutions/PCP-UNI-000101"
+        },
+        {
+          "name": "PCP-UNI-000102",
+          "path": "/institutions/PCP-UNI-000102"
+        },
+        {
+          "name": "PCP-UNI-000103",
+          "path": "/institutions/PCP-UNI-000103"
+        },
+        {
+          "name": "PCP-UNI-000104",
+          "path": "/institutions/PCP-UNI-000104"
+        },
+        {
+          "name": "PCP-UNI-000105",
+          "path": "/institutions/PCP-UNI-000105"
+        },
+        {
+          "name": "PCP-UNI-000106",
+          "path": "/institutions/PCP-UNI-000106"
+        },
+        {
+          "name": "PCP-UNI-000107",
+          "path": "/institutions/PCP-UNI-000107"
+        },
+        {
+          "name": "PCP-UNI-000108",
+          "path": "/institutions/PCP-UNI-000108"
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "pcp-portal",
+      "name": "PCP Portal",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "pcp-portal-demo-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8088/*"
+      ],
+      "webOrigins": [
+        "http://localhost:8088"
+      ],
+      "rootUrl": "http://localhost:8088",
+      "baseUrl": "/",
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:8088/*",
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "institution groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "claim.name": "groups",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "pcp-demo",
+      "name": "PCP Portal demo persona switcher (demo only)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "pcp-demo-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:8088/*"
+      ],
+      "webOrigins": [
+        "http://localhost:8088"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:8088/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "institution groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "claim.name": "groups",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "pcp-admin-api",
+      "name": "PCP Portal admin API (service account)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "pcp-admin-api-demo-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false
+    }
+  ],
+  "users": [
+    {
+      "username": "pcp.admin",
+      "enabled": true,
+      "firstName": "Super",
+      "lastName": "Admin",
+      "email": "pcp.admin@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_admin"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pcp.officer",
+      "enabled": true,
+      "firstName": "Usman",
+      "lastName": "Farooq",
+      "email": "pcp.officer@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_officer"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pcp.inspector",
+      "enabled": true,
+      "firstName": "Kamran",
+      "lastName": "Javed",
+      "email": "pcp.inspector@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_inspector"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pcp.inspector2",
+      "enabled": true,
+      "firstName": "Zainab",
+      "lastName": "Qureshi",
+      "email": "pcp.inspector2@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_inspector"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pcp.secretary",
+      "enabled": true,
+      "firstName": "Nadia",
+      "lastName": "Hussain",
+      "email": "pcp.secretary@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_secretary"
+      ],
+      "groups": []
+    },
+    {
+      "username": "ruh.poc",
+      "enabled": true,
+      "firstName": "Ayesha",
+      "lastName": "Khan",
+      "email": "ruh.poc@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "inst_poc"
+      ],
+      "groups": [
+        "/institutions/PCP-UNI-000101"
+      ]
+    },
+    {
+      "username": "nhc.poc",
+      "enabled": true,
+      "firstName": "Tariq",
+      "lastName": "Mehmood",
+      "email": "nhc.poc@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "inst_poc"
+      ],
+      "groups": [
+        "/institutions/PCP-UNI-000102"
+      ]
+    },
+    {
+      "username": "rbu.poc",
+      "enabled": true,
+      "firstName": "Saima",
+      "lastName": "Rauf",
+      "email": "rbu.poc@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "inst_poc"
+      ],
+      "groups": [
+        "/institutions/PCP-UNI-000103"
+      ]
+    },
+    {
+      "username": "ccp.poc",
+      "enabled": true,
+      "firstName": "Farhan",
+      "lastName": "Siddiqui",
+      "email": "ccp.poc@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "inst_poc"
+      ],
+      "groups": [
+        "/institutions/PCP-UNI-000104"
+      ]
+    },
+    {
+      "username": "bvu.poc",
+      "enabled": true,
+      "firstName": "Naseebullah",
+      "lastName": "Kakar",
+      "email": "bvu.poc@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "inst_poc"
+      ],
+      "groups": [
+        "/institutions/PCP-UNI-000105"
+      ]
+    },
+    {
+      "username": "gmi.poc",
+      "enabled": true,
+      "firstName": "Sher Ali",
+      "lastName": "Baig",
+      "email": "gmi.poc@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "inst_poc"
+      ],
+      "groups": [
+        "/institutions/PCP-UNI-000106"
+      ]
+    },
+    {
+      "username": "fru.poc",
+      "enabled": true,
+      "firstName": "Rabia",
+      "lastName": "Noor",
+      "email": "fru.poc@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "inst_poc"
+      ],
+      "groups": [
+        "/institutions/PCP-UNI-000107"
+      ]
+    },
+    {
+      "username": "scu.poc",
+      "enabled": true,
+      "firstName": "Ali Raza",
+      "lastName": "Memon",
+      "email": "scu.poc@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "inst_poc"
+      ],
+      "groups": [
+        "/institutions/PCP-UNI-000108"
+      ]
+    },
+    {
+      "username": "service-account-pcp-admin-api",
+      "enabled": true,
+      "serviceAccountClientId": "pcp-admin-api",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "query-groups",
+          "view-realm"
+        ]
+      }
+    }
+  ]
+}
