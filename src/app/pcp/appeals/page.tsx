@@ -1,5 +1,10 @@
-import Placeholder from "@/components/Placeholder";
+import AppealsList from "@/components/AppealsList";
+import { loadAppeals } from "@/lib/council-data";
+import { requirePermission } from "@/lib/session";
 
-export default function Page() {
-  return <Placeholder title="Appeals" sub="Appeals against decisions" />;
+export const dynamic = "force-dynamic";
+
+export default async function PcpAppealsPage() {
+  await requirePermission("pcp.appeals.review");
+  return <AppealsList side="pcp" rows={await loadAppeals()} />;
 }
