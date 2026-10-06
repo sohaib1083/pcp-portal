@@ -16,10 +16,12 @@ export type AuditInput = {
 const GENESIS = "0".repeat(64);
 
 // Canonical JSON (sorted keys): jsonb does not keep key order, so hashes must not depend on it.
+// Keys whose value is undefined are left out, as JSON and jsonb leave them out when the row is stored.
 function canonical(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
   if (v && typeof v === "object")
     return `{${Object.keys(v as Record<string, unknown>)
+      .filter((k) => (v as Record<string, unknown>)[k] !== undefined)
       .sort()
       .map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`)
       .join(",")}}`;
