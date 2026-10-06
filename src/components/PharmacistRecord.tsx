@@ -51,6 +51,17 @@ type Ev = { id: number; kind: string; fromStatus: string | null; toStatus: strin
 type Upd = { id: number; practicePlace: string; designation: string; status: string; submittedAt: string; reviewedBy: string | null; reviewedAt: string | null; reviewNote: string | null; evidence: { id: number; fileName: string } | null };
 type Doc = { id: number; docType: string; fileName: string; version: number; verificationStatus: string; uploadedBy: string; uploadedAt: string; sha256: string };
 
+/** A pharmacist's files open only for the registration officer (and the pharmacist); others see the name. */
+function DocLink({ id, open, children }: { id: number; open: boolean; children: React.ReactNode }) {
+  return open ? (
+    <a href={`/api/documents/${id}`} target="_blank" rel="noreferrer">
+      {children}
+    </a>
+  ) : (
+    <span className="muted">{children}</span>
+  );
+}
+
 const STATUS_HELP: Record<string, string> = {
   ACTIVE: "Registered and in date. May practise.",
   DORMANT: "Not renewed. May not practise until renewed with the council.",
@@ -214,9 +225,9 @@ export default function PharmacistRecord({ canManage, p, imported, events, updat
                     <b style={{ fontWeight: 600 }}>{pending.designation}</b>, {pending.practicePlace}
                     <div style={{ marginTop: 4 }}>
                       {pending.evidence ? (
-                        <a href={`/api/documents/${pending.evidence.id}`} target="_blank" rel="noreferrer">
+                        <DocLink id={pending.evidence.id} open={canManage}>
                           <FileSearchOutlined /> {pending.evidence.fileName}
-                        </a>
+                        </DocLink>
                       ) : (
                         <span className="faint">No evidence attached</span>
                       )}
@@ -247,7 +258,7 @@ export default function PharmacistRecord({ canManage, p, imported, events, updat
               columns={[
                 { title: "Sent", dataIndex: "submittedAt", render: (v) => fmtDate(v) },
                 { title: "Practice details", render: (_, u) => `${u.designation}, ${u.practicePlace}` },
-                { title: "Evidence", render: (_, u) => (u.evidence ? <a href={`/api/documents/${u.evidence.id}`} target="_blank" rel="noreferrer">{u.evidence.fileName}</a> : <span className="faint">—</span>), responsive: ["md"] },
+                { title: "Evidence", render: (_, u) => (u.evidence ? <DocLink id={u.evidence.id} open={canManage}>{u.evidence.fileName}</DocLink> : <span className="faint">—</span>), responsive: ["md"] },
                 { title: "Result", dataIndex: "status", render: (v, u) => <span title={u.reviewNote ?? undefined}><Pill value={v} /></span> },
                 { title: "Note", dataIndex: "reviewNote", render: (v) => <span className="muted" style={{ fontSize: 12.5 }}>{v ?? "—"}</span>, responsive: ["lg"] },
               ]}
@@ -358,9 +369,9 @@ export default function PharmacistRecord({ canManage, p, imported, events, updat
                 {
                   title: "Document",
                   render: (_, d) => (
-                    <a href={`/api/documents/${d.id}`} target="_blank" rel="noreferrer">
+                    <DocLink id={d.id} open={canManage}>
                       <FilePdfOutlined /> {d.docType} <span className="faint">v{d.version}</span>
-                    </a>
+                    </DocLink>
                   ),
                 },
                 { title: "Status", dataIndex: "verificationStatus", render: (v) => <Pill value={v} /> },

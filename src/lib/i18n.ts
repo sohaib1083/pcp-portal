@@ -27,7 +27,7 @@ const D = {
     en: "Institutions apply for NOCs and accreditation online. PCP scrutinises, inspects and decides in one tracked workflow. Anyone can verify an institution or a certificate.",
     ur: "ادارے این او سی اور ایکریڈیٹیشن کے لیے آن لائن درخواست دیتے ہیں۔ پی سی پی ایک ہی ٹریک شدہ عمل میں جانچ، معائنہ اور فیصلہ کرتی ہے۔ کوئی بھی شخص کسی ادارے یا سرٹیفکیٹ کی تصدیق کر سکتا ہے۔",
   },
-  "home.searchPlaceholder": { en: "Verify an institution: name or PCP ID (e.g. PCP-UNI-000101)", ur: "ادارے کی تصدیق کریں: نام یا پی سی پی آئی ڈی (مثلاً PCP-UNI-000101)" },
+  "home.searchPlaceholder": { en: "Verify an institution: name or PCP ID (e.g. PCP-UNI-000101)", ur: "ادارے کی تصدیق کریں: نام یا پی سی پی آئی ڈی، مثلاً PCP-UNI-000101" },
   "home.searchLabel": { en: "Institution name or PCP ID", ur: "ادارے کا نام یا پی سی پی آئی ڈی" },
   "home.verifyButton": { en: "Verify", ur: "تصدیق کریں" },
   "home.try": { en: "Try", ur: "آزمائیں:" },

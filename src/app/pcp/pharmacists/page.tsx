@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { and, asc, desc, eq, ilike, inArray, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import PharmacistRegister from "@/components/PharmacistRegister";
 import { db, schema } from "@/db";
 import { CATEGORIES, STATUSES, isCouncil } from "@/lib/register";
@@ -53,7 +53,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ q
       .select({ u: schema.practiceUpdates, p: { id: P.id, regNo: P.regNo, fullName: P.fullName } })
       .from(schema.practiceUpdates)
       .innerJoin(P, eq(P.id, schema.practiceUpdates.pharmacistId))
-      .where(and(ne(schema.practiceUpdates.status, "PENDING"), inArray(schema.practiceUpdates.status, ["VERIFIED", "REJECTED"])))
+      .where(inArray(schema.practiceUpdates.status, ["VERIFIED", "REJECTED"]))
       .orderBy(desc(schema.practiceUpdates.reviewedAt))
       .limit(8),
     db.select().from(schema.pharmacistImports).orderBy(desc(schema.pharmacistImports.createdAt)).limit(20),

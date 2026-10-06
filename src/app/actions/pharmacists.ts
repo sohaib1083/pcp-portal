@@ -81,9 +81,15 @@ export async function reviewPracticeUpdate(updateId: number, decision: "VERIFIED
   } catch (e) {
     return { ok: false, level: "error", message: (e as Error).message };
   }
-  await db.transaction(async (tx) => {
+  const decided = await db.transaction(async (tx) => {
     const now = new Date();
-    await tx.update(schema.practiceUpdates).set({ status: decision, reviewedBy: user.username, reviewedAt: now, reviewNote: why || null }).where(eq(schema.practiceUpdates.id, u.id));
+    // Only a still-pending update can be decided: a second officer or a newer update may have got there first.
+    const [row] = await tx
+      .update(schema.practiceUpdates)
+      .set({ status: decision, reviewedBy: user.username, reviewedAt: now, reviewNote: why || null })
+      .where(and(eq(schema.practiceUpdates.id, u.id), eq(schema.practiceUpdates.status, "PENDING")))
+      .returning({ id: schema.practiceUpdates.id });
+    if (!row) return false;
     if (u.evidenceDocumentId) await tx.update(schema.documents).set({ verificationStatus: decision === "VERIFIED" ? "VERIFIED" : "REJECTED" }).where(eq(schema.documents.id, u.evidenceDocumentId));
     if (decision === "VERIFIED")
       await tx.update(schema.pharmacists).set({ practicePlace: u.practicePlace, designation: u.designation, practiceConfirmed: true, practiceConfirmedAt: now, updatedAt: now }).where(eq(schema.pharmacists.id, p.id));
@@ -98,8 +104,10 @@ export async function reviewPracticeUpdate(updateId: number, decision: "VERIFIED
     const body = decision === "VERIFIED" ? `PCP verified ${u.designation}, ${u.practicePlace}. It now shows on your record and your registration card.` : `PCP could not verify ${u.practicePlace}. ${why}`;
     if (p.username) await notify(tx, `user:${p.username}`, title, body, "/pharmacist");
     else if (p.email) await sendEmail(tx, { to: p.email, toName: p.fullName, subject: title, body, entity: "pharmacist", entityRef: p.regNo });
+    return true;
   });
   refresh(p.id);
+  if (!decided) return { ok: false, level: "warning", message: "This update was already decided or replaced by a newer one. Reload the queue." };
   return decision === "VERIFIED"
     ? { ok: true, level: "success", message: `${p.fullName}'s practice place is confirmed: ${u.practicePlace}.` }
     : { ok: true, level: "success", message: `Update rejected. ${p.fullName} was told what to send instead.` };

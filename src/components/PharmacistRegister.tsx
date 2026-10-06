@@ -298,9 +298,15 @@ function PracticeQueue({ canManage, pending, recent }: { canManage: boolean; pen
               title: "Evidence",
               render: (_, r) =>
                 r.evidence ? (
-                  <a href={`/api/documents/${r.evidence.id}`} target="_blank" rel="noreferrer">
-                    <FileSearchOutlined /> {r.evidence.fileName}
-                  </a>
+                  canManage ? (
+                    <a href={`/api/documents/${r.evidence.id}`} target="_blank" rel="noreferrer">
+                      <FileSearchOutlined /> {r.evidence.fileName}
+                    </a>
+                  ) : (
+                    <span className="muted">
+                      <FileSearchOutlined /> {r.evidence.fileName}
+                    </span>
+                  )
                 ) : (
                   <span className="faint">None</span>
                 ),
