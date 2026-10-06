@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
 import InstitutionDashboard from "@/components/InstitutionDashboard";
 import { db, schema } from "@/db";
+import { registryActions } from "@/lib/registry";
 import { requireInstitution } from "@/lib/session";
 import { daysUntil, iso } from "@/lib/util";
 
@@ -41,9 +42,8 @@ export default async function InstitutionHome({ searchParams }: { searchParams: 
     .limit(6);
 
   const actions: { text: string; level: "error" | "warning" | "info"; link?: string }[] = [];
-  actions.push({ text: "Annual Student Update 2026 (enrolment, progression, results) due 31 Oct 2026", level: "warning", link: "/institution/students" });
+  actions.push(...(await registryActions(db, inst.id))); // annual student update and annual faculty update, from their records
   if (pendingFaculty[0].n > 0) actions.push({ text: `${pendingFaculty[0].n} faculty record(s) awaiting PCP verification`, level: "info", link: "/institution/faculty" });
-  actions.push({ text: "Annual faculty update due 31 Dec 2026", level: "info", link: "/institution/faculty" });
   for (const p of programs) {
     const d = daysUntil(p.accreditationValidUntil);
     if (d !== null && d <= 180) actions.push({ text: `${p.type === "PHARMD" ? "PharmD" : "Technician"} accreditation renewal due in ${d} days (expires ${p.accreditationValidUntil})`, level: d <= 90 ? "error" : "warning" });
