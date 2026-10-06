@@ -42,7 +42,7 @@ function wrap(text: string, font: PDFFont, size: number, width: number) {
 }
 
 /** Strip characters the standard PDF fonts cannot draw. */
-const pdfSafe = (s: string) => s.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, "-").replace(/[^\x20-\x7E]/g, "");
+const pdfSafe = (s: string) => s.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—·]/g, "-").replace(/[^\x20-\x7E]/g, "");
 
 export async function renderLetter(o: LetterInput): Promise<Buffer> {
   const pdf = await PDFDocument.create();
