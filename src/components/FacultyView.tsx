@@ -676,28 +676,12 @@ function RecordDrawer({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const { message } = App.useApp();
   const [kind, setKind] = useState<Kind>("CHANGE_DESIGNATION");
-  const [form] = Form.useForm();
-  const [busy, start] = useBusy();
   const [outcome, setOutcome] = useState<{ ok: boolean; message: string } | null>(null);
   const mine = useMemo(() => (row ? rows.filter((r) => r.facultyId === row.facultyId) : []), [row, rows]);
   const other = row ? elsewhere.filter((e) => e.facultyId === row.facultyId) : [];
   const hist = row ? history.filter((h) => h.facultyId === row.facultyId) : [];
   const editable = !!row && canEdit && row.linkStatus === "ACTIVE" && !row.pendingChange;
-
-  const send = (values: Record<string, unknown>) =>
-    start(async () => {
-      if (!row) return;
-      const payload = { kind, ...values, endDate: values.endDate ? dayjs(values.endDate as string).format("YYYY-MM-DD") : undefined };
-      const r = await requestFacultyChange(row.linkId, payload);
-      setOutcome(r);
-      message[r.ok ? "success" : "error"](r.message);
-      if (r.ok) {
-        form.resetFields();
-        onDone();
-      }
-    });
 
   const timeline = [
     ...mine.map((m) => ({ key: `m${m.linkId}`, where: "Your institution", prog: programLabel(m.programType), status: m.linkStatus, start: m.startDate, end: m.endDate })),
@@ -809,73 +793,98 @@ function RecordDrawer({
                 ]}
                 style={{ marginBottom: 14 }}
               />
-              <Form
-                key={kind}
-                form={form}
-                layout="vertical"
-                onFinish={send}
-                initialValues={{
-                  designation: row.designation,
-                  programType: programmes.find((p) => p !== row.programType) ?? row.programType,
-                  fullName: row.fullName,
-                  fatherName: row.fatherName,
-                  qualification: row.qualification,
-                  specialization: row.specialization,
-                  pcpRegNo: row.pcpRegNo ?? "",
-                  category: "Transfer",
-                  endDate: dayjs(),
+              <ChangeForm
+                key={`${row.linkId}:${kind}:${row.fullName}:${row.fatherName}:${row.designation}:${row.qualification}:${row.specialization}:${row.pcpRegNo}:${row.programType}`}
+                row={row}
+                kind={kind}
+                programmes={programmes}
+                onResult={(r) => {
+                  setOutcome(r);
+                  if (r.ok) onDone();
                 }}
-              >
-                {kind === "CHANGE_DESIGNATION" ? (
-                  <Form.Item name="designation" label="New designation" rules={[{ required: true }]}>
-                    <Select options={DESIGNATIONS.map((v) => ({ value: v }))} />
-                  </Form.Item>
-                ) : null}
-                {kind === "CHANGE_PROGRAMME" ? (
-                  <Form.Item name="programType" label="Move to programme" extra="The current appointment ends and a new one opens under the new programme, so the history is kept." rules={[{ required: true }]}>
-                    <Select options={programmes.map((p) => ({ value: p, label: programLabel(p), disabled: p === row.programType }))} />
-                  </Form.Item>
-                ) : null}
-                {kind === "CORRECT_DETAILS" ? (
-                  <Row gutter={12}>
-                    <Col span={12}>
-                      <Form.Item name="fullName" label="Full name" rules={[{ required: true }]}><Input /></Form.Item>
-                    </Col>
-                    <Col span={12}>
-                      <Form.Item name="fatherName" label="Father's name" rules={[{ required: true }]}><Input /></Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item name="qualification" label="Qualification"><Select options={QUALIFICATIONS.map((v) => ({ value: v }))} /></Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item name="specialization" label="Specialization"><Select options={SPECIALIZATIONS.map((v) => ({ value: v }))} /></Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item name="pcpRegNo" label="Registration no."><Input /></Form.Item>
-                    </Col>
-                  </Row>
-                ) : null}
-                {kind === "END_LINK" ? (
-                  <Row gutter={12}>
-                    <Col span={12}>
-                      <Form.Item name="category" label="Why it ends"><Select options={END_CATEGORIES.map((v) => ({ value: v }))} /></Form.Item>
-                    </Col>
-                    <Col span={12}>
-                      <Form.Item name="endDate" label="End date"><DatePicker style={{ width: "100%" }} /></Form.Item>
-                    </Col>
-                  </Row>
-                ) : null}
-                <Form.Item name="reason" label="Reason for the change" rules={[{ required: true, min: 5, message: "Give a reason of at least 5 characters" }]}>
-                  <Input.TextArea rows={2} placeholder={kind === "CHANGE_DESIGNATION" ? "e.g. Promoted by the selection board on 12 September 2026" : "Explain the change for PCP"} />
-                </Form.Item>
-                <Button type="primary" htmlType="submit" loading={busy}>
-                  {row.verified ? "Send change request to PCP" : "Apply change"}
-                </Button>
-              </Form>
+              />
             </>
           ) : null}
         </>
       ) : null}
     </Drawer>
+  );
+}
+
+/** The change form for one appointment. It has its own form instance, so it never carries another person's values. */
+function ChangeForm({ row, kind, programmes, onResult }: { row: Row; kind: Kind; programmes: string[]; onResult: (r: { ok: boolean; message: string }) => void }) {
+  const { message } = App.useApp();
+  const [form] = Form.useForm();
+  const [busy, start] = useBusy();
+  const send = (values: Record<string, unknown>) =>
+    start(async () => {
+      const payload = { kind, ...values, endDate: values.endDate ? dayjs(values.endDate as string).format("YYYY-MM-DD") : undefined };
+      const r = await requestFacultyChange(row.linkId, payload);
+      message[r.ok ? "success" : "error"](r.message);
+      onResult(r);
+    });
+  return (
+    <Form
+      form={form}
+      layout="vertical"
+      onFinish={send}
+      initialValues={{
+        designation: row.designation,
+        programType: programmes.find((p) => p !== row.programType) ?? row.programType,
+        fullName: row.fullName,
+        fatherName: row.fatherName,
+        qualification: row.qualification,
+        specialization: row.specialization,
+        pcpRegNo: row.pcpRegNo ?? "",
+        category: "Transfer",
+        endDate: dayjs(),
+      }}
+    >
+      {kind === "CHANGE_DESIGNATION" ? (
+        <Form.Item name="designation" label="New designation" rules={[{ required: true }]}>
+          <Select options={DESIGNATIONS.map((v) => ({ value: v }))} />
+        </Form.Item>
+      ) : null}
+      {kind === "CHANGE_PROGRAMME" ? (
+        <Form.Item name="programType" label="Move to programme" extra="The current appointment ends and a new one opens under the new programme, so the history is kept." rules={[{ required: true }]}>
+          <Select options={programmes.map((p) => ({ value: p, label: programLabel(p), disabled: p === row.programType }))} />
+        </Form.Item>
+      ) : null}
+      {kind === "CORRECT_DETAILS" ? (
+        <Row gutter={12}>
+          <Col span={12}>
+            <Form.Item name="fullName" label="Full name" rules={[{ required: true }]}><Input /></Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="fatherName" label="Father's name" rules={[{ required: true }]}><Input /></Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="qualification" label="Qualification"><Select options={QUALIFICATIONS.map((v) => ({ value: v }))} /></Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="specialization" label="Specialization"><Select options={SPECIALIZATIONS.map((v) => ({ value: v }))} /></Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="pcpRegNo" label="Registration no."><Input /></Form.Item>
+          </Col>
+        </Row>
+      ) : null}
+      {kind === "END_LINK" ? (
+        <Row gutter={12}>
+          <Col span={12}>
+            <Form.Item name="category" label="Why it ends"><Select options={END_CATEGORIES.map((v) => ({ value: v }))} /></Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="endDate" label="End date"><DatePicker style={{ width: "100%" }} /></Form.Item>
+          </Col>
+        </Row>
+      ) : null}
+      <Form.Item name="reason" label="Reason for the change" rules={[{ required: true, min: 5, message: "Give a reason of at least 5 characters" }]}>
+        <Input.TextArea rows={2} placeholder={kind === "CHANGE_DESIGNATION" ? "e.g. Promoted by the selection board on 12 September 2026" : "Explain the change for PCP"} />
+      </Form.Item>
+      <Button type="primary" htmlType="submit" loading={busy}>
+        {row.verified ? "Send change request to PCP" : "Apply change"}
+      </Button>
+    </Form>
   );
 }

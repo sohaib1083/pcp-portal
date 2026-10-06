@@ -327,7 +327,7 @@ export default function AnnualReturnsView({
       </Card>
 
       {current && effective ? (
-        <CorrectionDrawer open={correcting} onClose={() => setCorrecting(false)} r={current} current={effective} onDone={() => router.refresh()} />
+        <CorrectionDrawer key={`${current.id}:${list.length}:${list.filter((c) => c.status === "APPROVED").length}`} open={correcting} onClose={() => setCorrecting(false)} r={current} current={effective} onDone={() => router.refresh()} />
       ) : null}
     </>
   );
