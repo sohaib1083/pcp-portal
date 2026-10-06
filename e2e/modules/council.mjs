@@ -203,7 +203,18 @@ try {
     await ctx.close();
   }
 
-  // ---------- 3. Public ticket answered by PCP ----------
+  // ---------- 3. Help desk: a signed-in requester, then a public ticket answered by PCP ----------
+  {
+    const { ctx, page } = await as("student.ruh", "/student/help");
+    await page.locator(".ant-card", { hasText: "Raise a ticket" }).getByRole("button", { name: /Fill demo values/ }).click();
+    await page.getByRole("button", { name: "Raise ticket" }).click();
+    const msg = await toast(page, /Ticket TKT-\d{4}-\d{4} created/);
+    const ref = /TKT-\d{4}-\d{4}/.exec(msg)[0];
+    await page.locator(`[id="${ref}"]`).waitFor();
+    log("student raised", ref, "and sees it under Your tickets");
+    await shot(page, "student-ticket");
+    await ctx.close();
+  }
   let ticketRef;
   {
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 950 } });
