@@ -51,7 +51,7 @@ export function useOtp() {
         <b>{pending?.title}</b> needs a one-time code. We sent it by SMS to <span className="mono">{pending?.sentTo}</span>.
       </p>
       <Input id="otp-code" size="large" value={code} onChange={(e) => setCode(e.target.value)} maxLength={6} inputMode="numeric" style={{ letterSpacing: "0.3em", fontWeight: 600, maxWidth: 200 }} />
-      <Alert type="info" showIcon style={{ marginTop: 12 }} message={`Demo: no SMS is sent, so the code ${pending?.demoCode ?? ""} is filled in for you. It is also in Messages.`} />
+      <Alert type="info" showIcon style={{ marginTop: 12 }} title={`Demo: no SMS is sent, so the code ${pending?.demoCode ?? ""} is filled in for you. It is also in Messages.`} />
     </Modal>
   );
   return { withOtp, otpModal };
