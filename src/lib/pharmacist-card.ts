@@ -27,7 +27,7 @@ export const cardStatusUrl = (regNo: string) => publicUrl(`/verify?reg=${encodeU
 
 const councilName = (c: string) => (isCouncil(c) ? COUNCIL_INFO[c].name : c);
 const day = (iso: string | null | undefined) => (iso ? new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "-");
-const safe = (s: string) => s.replace(/[–—]/g, "-").replace(/[^\x20-\x7E]/g, "");
+const safe = (s: string) => s.replace(/[–—]/g, "-").replace(/ · /g, " | ").replace(/[^\x20-\x7E]/g, "");
 
 /** What the card shows. When this changes, a new card version is issued. */
 export function cardFingerprint(p: Pharmacist) {

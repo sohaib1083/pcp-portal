@@ -116,7 +116,7 @@ export default function PharmacistImport({ canManage, history }: { canManage: bo
           }
           style={{ marginBottom: 16 }}
         >
-          <div style={{ display: "grid", gap: 14, maxWidth: 900 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 900 }}>
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <b style={{ fontWeight: 600 }}>1. Which council sent the file?</b>
               <Select
@@ -149,7 +149,6 @@ export default function PharmacistImport({ canManage, history }: { canManage: bo
                   if (council) f.text().then((text) => check(council, { name: f.name, text }));
                   return false;
                 }}
-                style={{ padding: "6px 0" }}
               >
                 <p style={{ margin: 0, fontSize: 26, color: "var(--brand)" }}>
                   <CloudUploadOutlined />

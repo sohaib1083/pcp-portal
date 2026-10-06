@@ -13,6 +13,7 @@ import { requirePermission } from "@/lib/session";
 import { notify } from "@/lib/util";
 import type { ActionResult } from "./faculty";
 
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const councilName = (c: string) => (isCouncil(c) ? COUNCIL_INFO[c].name : c);
 
 function refresh(id?: number) {
@@ -149,7 +150,7 @@ export async function runImport(council: string, fileName: string, text: string)
         entity: "pharmacist_import",
         entityRef: ref,
       });
-      await notify(tx, "role:pcp_registration", `${ref}: ${COUNCIL_INFO[council as Council].name} file imported`, `${inserted.length} pharmacists added, ${errors.length} rows returned to the council.`, "/pcp/pharmacists?tab=imports");
+      await notify(tx, "role:pcp_registration", `${ref}: ${COUNCIL_INFO[council as Council].name} file imported`, `${plural(inserted.length, "pharmacist")} added, ${plural(errors.length, "row")} returned to the council.`, "/pcp/pharmacists?tab=imports");
     });
   } catch (e) {
     const msg = (e as Error).message;
@@ -162,7 +163,9 @@ export async function runImport(council: string, fileName: string, text: string)
     level: errors.length ? "warning" : "success",
     ref,
     imported: good.length,
-    message: errors.length ? `${ref}: ${good.length} pharmacists added. ${errors.length} rows with errors were left out and sent back to the council.` : `${ref}: all ${good.length} pharmacists added.`,
+    message: errors.length
+      ? `${ref}: ${plural(good.length, "pharmacist")} added. ${plural(errors.length, "row")} with errors ${errors.length === 1 ? "was" : "were"} left out and sent back to the council.`
+      : `${ref}: all ${plural(good.length, "pharmacist")} added.`,
   };
 }
 
