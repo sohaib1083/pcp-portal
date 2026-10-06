@@ -12,11 +12,19 @@ export default async function InstitutionLayout({ children }: { children: React.
     .from(schema.deficiencies)
     .where(and(eq(schema.deficiencies.institutionId, inst.id), inArray(schema.deficiencies.status, ["OUTSTANDING", "REJECTED"])));
 
+  const r = user.roles;
   const nav: NavItem[] = [{ href: "/institution", label: "Dashboard", icon: "dashboard", group: "Overview" }];
-  if (can(user.roles, "inst.faculty.view")) nav.push({ href: "/institution/faculty", label: "Faculty", icon: "faculty", group: "Registry" });
-  if (can(user.roles, "inst.students.view")) nav.push({ href: "/institution/students", label: "Students", icon: "students", group: "Registry" });
-  if (can(user.roles, "inst.app.view")) nav.push({ href: "/institution/applications", label: "Applications", icon: "applications", group: "With PCP", badge: open || undefined });
-  if (can(user.roles, "inst.documents.view")) nav.push({ href: "/institution/documents", label: "Documents", icon: "documents", group: "With PCP" });
+  nav.push({ href: "/institution/profile", label: "Profile & campuses", icon: "profile", group: "Overview" });
+  if (can(r, "inst.faculty.view")) nav.push({ href: "/institution/faculty", label: "Faculty", icon: "faculty", group: "Registry" });
+  if (can(r, "inst.students.view")) nav.push({ href: "/institution/students", label: "Students", icon: "students", group: "Registry" });
+  if (can(r, "inst.students.view") || can(r, "inst.annual.file")) nav.push({ href: "/institution/annual-returns", label: "Annual returns", icon: "annual", group: "Registry" });
+  if (can(r, "inst.app.view")) nav.push({ href: "/institution/applications", label: "Applications", icon: "applications", group: "With PCP", badge: open || undefined });
+  if (can(r, "inst.fee.pay") || can(r, "inst.app.view")) nav.push({ href: "/institution/payments", label: "Payments & dues", icon: "payments", group: "With PCP" });
+  if (can(r, "inst.app.view")) nav.push({ href: "/institution/appeals", label: "Appeals", icon: "appeals", group: "With PCP" });
+  if (can(r, "inst.documents.view")) nav.push({ href: "/institution/documents", label: "Documents", icon: "documents", group: "With PCP" });
+  nav.push({ href: "/institution/messages", label: "Messages", icon: "messages", group: "With PCP" });
+  nav.push({ href: "/institution/help", label: "Help desk", icon: "help", group: "With PCP" });
+  if (can(r, "inst.users.manage")) nav.push({ href: "/institution/users", label: "Users & roles", icon: "users", group: "Administration" });
 
   const audience = `inst:${inst.code}`;
   const [{ n }] = await db

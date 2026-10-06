@@ -2,7 +2,7 @@
 import { Alert, Button, Col, Row, Typography } from "antd";
 import { ArrowRightOutlined, KeyOutlined, PlayCircleOutlined, SafetyOutlined } from "@ant-design/icons";
 import { loginAction, quickSignInAction } from "@/app/actions/auth";
-import { PERSONAS, type Persona } from "@/lib/demo-story";
+import { MORE_PERSONAS, PERSONAS, type Persona } from "@/lib/demo-story";
 import { Avatar } from "./common";
 import { PublicFrame } from "./PublicHome";
 
@@ -91,9 +91,17 @@ export default function LoginView({ next, quick, error }: { next: string; quick:
             </Col>
           ))}
         </Row>
+        <div className="pcp-eyebrow" style={{ marginTop: 26 }}>More roles from PCP&apos;s working guide</div>
+        <Row gutter={[14, 14]}>
+          {MORE_PERSONAS.map((p) => (
+            <Col key={p.username} xs={24} md={12} lg={8}>
+              <PersonaCard p={p} next={next} quick={quick} />
+            </Col>
+          ))}
+        </Row>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 22, paddingTop: 18, borderTop: "1px solid var(--line)" }}>
           <span className="muted" style={{ fontSize: 13 }}>
-            Every institution has one focal-person account (e.g. <code>rbu.poc</code>, <code>scu.poc</code>). New accounts are created only by the Super Admin.
+            Every institution has a Head account (e.g. <code>rbu.poc</code>, <code>scu.poc</code>) who adds the institution&apos;s own staff. New institutions register themselves and PCP approves them.
           </span>
           <form action={loginAction}>
             <input type="hidden" name="next" value={next} />

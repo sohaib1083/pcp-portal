@@ -13,7 +13,55 @@
     "realm": [
       {
         "name": "inst_poc",
-        "description": "Institution Focal Person (POC)"
+        "description": "Head of institution"
+      },
+      {
+        "name": "inst_principal",
+        "description": "Principal or Dean"
+      },
+      {
+        "name": "inst_dept_admin",
+        "description": "Department administrator"
+      },
+      {
+        "name": "inst_data_entry",
+        "description": "Data-entry officer"
+      },
+      {
+        "name": "inst_exam",
+        "description": "Examination officer"
+      },
+      {
+        "name": "inst_finance",
+        "description": "Finance officer"
+      },
+      {
+        "name": "inst_applicant",
+        "description": "Institution applicant (onboarding only)"
+      },
+      {
+        "name": "pcp_registration",
+        "description": "PCP Registration officer"
+      },
+      {
+        "name": "pcp_coordinator",
+        "description": "PCP Inspection coordinator"
+      },
+      {
+        "name": "pcp_accounts",
+        "description": "PCP Accounts officer"
+      },
+      {
+        "name": "pcp_verification",
+        "description": "PCP Verification officer"
+      },
+      {
+        "name": "student",
+        "description": "Student (own record)"
+      },
+      {
+        "name": "pharmacist",
+        "description": "Registered pharmacist (own record)"
       },
       {
         "name": "pcp_admin",
@@ -85,7 +133,16 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "redirectUris": [
-        "http://localhost:8088/*"
+        "http://localhost:8088/*",
+        "http://localhost:3201/*",
+        "http://localhost:3202/*",
+        "http://localhost:3203/*",
+        "http://localhost:3204/*",
+        "http://localhost:3205/*",
+        "http://localhost:3206/*",
+        "http://localhost:3207/*",
+        "http://localhost:3208/*",
+        "http://localhost:3209/*"
       ],
       "webOrigins": [
         "http://localhost:8088"
@@ -451,6 +508,282 @@
       "groups": [
         "/institutions/PCP-UNI-000108"
       ]
+    },
+    {
+      "username": "ruh.dean",
+      "enabled": true,
+      "firstName": "Imran",
+      "lastName": "Shah",
+      "email": "ruh.dean@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "inst_principal"
+      ],
+      "groups": [
+        "/institutions/PCP-UNI-000101"
+      ]
+    },
+    {
+      "username": "ruh.admin",
+      "enabled": true,
+      "firstName": "Saba",
+      "lastName": "Qureshi",
+      "email": "ruh.admin@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "inst_dept_admin"
+      ],
+      "groups": [
+        "/institutions/PCP-UNI-000101"
+      ]
+    },
+    {
+      "username": "ruh.entry",
+      "enabled": true,
+      "firstName": "Junaid",
+      "lastName": "Akhtar",
+      "email": "ruh.entry@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "inst_data_entry"
+      ],
+      "groups": [
+        "/institutions/PCP-UNI-000101"
+      ]
+    },
+    {
+      "username": "ruh.exam",
+      "enabled": true,
+      "firstName": "Nida",
+      "lastName": "Farooq",
+      "email": "ruh.exam@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "inst_exam"
+      ],
+      "groups": [
+        "/institutions/PCP-UNI-000101"
+      ]
+    },
+    {
+      "username": "ruh.finance",
+      "enabled": true,
+      "firstName": "Waqas",
+      "lastName": "Butt",
+      "email": "ruh.finance@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "inst_finance"
+      ],
+      "groups": [
+        "/institutions/PCP-UNI-000101"
+      ]
+    },
+    {
+      "username": "pcp.registration",
+      "enabled": true,
+      "firstName": "Hina",
+      "lastName": "Malik",
+      "email": "pcp.registration@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_registration"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pcp.coordinator",
+      "enabled": true,
+      "firstName": "Bilal",
+      "lastName": "Ahmed",
+      "email": "pcp.coordinator@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_coordinator"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pcp.accounts",
+      "enabled": true,
+      "firstName": "Sadia",
+      "lastName": "Raza",
+      "email": "pcp.accounts@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_accounts"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pcp.verification",
+      "enabled": true,
+      "firstName": "Kashif",
+      "lastName": "Iqbal",
+      "email": "pcp.verification@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_verification"
+      ],
+      "groups": []
+    },
+    {
+      "username": "student.ruh",
+      "enabled": true,
+      "firstName": "Areeba",
+      "lastName": "Noor",
+      "email": "student.ruh@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "student"
+      ],
+      "groups": []
+    },
+    {
+      "username": "student.rbu",
+      "enabled": true,
+      "firstName": "Hamza",
+      "lastName": "Iqbal",
+      "email": "student.rbu@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "student"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pharm.ali",
+      "enabled": true,
+      "firstName": "Ali",
+      "lastName": "Raza",
+      "email": "pharm.ali@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pharmacist"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pharm.sana",
+      "enabled": true,
+      "firstName": "Sana",
+      "lastName": "Memon",
+      "email": "pharm.sana@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pharmacist"
+      ],
+      "groups": []
+    },
+    {
+      "username": "ivc.applicant",
+      "enabled": true,
+      "firstName": "Rehana",
+      "lastName": "Baloch",
+      "email": "ivc.applicant@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "inst_applicant"
+      ],
+      "groups": []
     },
     {
       "username": "service-account-pcp-admin-api",

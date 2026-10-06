@@ -127,6 +127,7 @@ try {
   await page.locator(".ant-card", { hasText: "Simulate bank confirmation" }).last().scrollIntoViewIfNeeded();
   await shot("fee-raast", "Fee challan: 1Link PSID and a Raast QR (0% merchant fee)");
   await click(page.getByRole("button", { name: /Simulate bank confirmation/ }));
+  await page.locator(".ant-modal").getByRole("button", { name: "Confirm" }).click();
   await toast(/Payment confirmed/);
 
   // Act II · step 5: officer resolves the duplicate

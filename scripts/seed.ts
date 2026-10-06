@@ -8,6 +8,7 @@ import { audit } from "../src/lib/audit";
 import { normalizeName } from "../src/lib/names";
 import { putFile } from "../src/lib/storage";
 import type { ChecklistItem, CheckResult } from "../src/db/schema";
+import { seedModules } from "./seed/index";
 
 let seed = 20261004;
 function rand() {
@@ -106,6 +107,20 @@ const STAFF = [
   ["bvu.poc", "Dr. Naseebullah Kakar", "inst_poc", null, "BVU"],
   ["gmi.poc", "Sher Ali Baig", "inst_poc", null, "GMI"],
   ["fru.poc", "Dr. Rabia Noor", "inst_poc", null, "FRU"],
+  ["ruh.dean", "Dr. Imran Shah", "inst_principal", null, "RUH"],
+  ["ruh.admin", "Saba Qureshi", "inst_dept_admin", null, "RUH"],
+  ["ruh.entry", "Junaid Akhtar", "inst_data_entry", null, "RUH"],
+  ["ruh.exam", "Nida Farooq", "inst_exam", null, "RUH"],
+  ["ruh.finance", "Waqas Butt", "inst_finance", null, "RUH"],
+  ["pcp.registration", "Hina Malik", "pcp_registration", null, null],
+  ["pcp.coordinator", "Bilal Ahmed", "pcp_coordinator", null, null],
+  ["pcp.accounts", "Sadia Raza", "pcp_accounts", null, null],
+  ["pcp.verification", "Kashif Iqbal", "pcp_verification", null, null],
+  ["student.ruh", "Areeba Noor", "student", null, null],
+  ["student.rbu", "Hamza Iqbal", "student", null, null],
+  ["pharm.ali", "Ali Raza", "pharmacist", null, null],
+  ["pharm.sana", "Sana Memon", "pharmacist", null, null],
+  ["ivc.applicant", "Rehana Baloch", "inst_applicant", null, null],
   ["scu.poc", "Dr. Ali Raza Memon", "inst_poc", null, "SCU"],
 ] as const;
 
@@ -121,16 +136,21 @@ const CRITERIA = [
 
 async function main() {
   console.log("Resetting tables and storage ...");
-  await db.execute(sql`truncate audit_log, notifications, duplicate_flags, documents, inspections, deficiencies,
-    application_events, applications, students, faculty_links, faculty, accreditation_history, programs, staff, rules, institutions
-    restart identity cascade`);
-  await rm(path.resolve(process.env.STORAGE_DIR ?? "./storage", "institutions"), { recursive: true, force: true });
+  // Every table, including the module tables (anything not created by Drizzle's own bookkeeping).
+  const tables = (await db.execute(sql`select tablename from pg_tables where schemaname = 'public' and tablename not like '__drizzle%'`)).rows.map((r) => `"${(r as { tablename: string }).tablename}"`);
+  await db.execute(sql.raw(`truncate ${tables.join(", ")} restart identity cascade`));
+  for (const dir of ["institutions", "onboarding", "pharmacists", "misc"]) await rm(path.resolve(process.env.STORAGE_DIR ?? "./storage", dir), { recursive: true, force: true });
 
   const instRows = await db
     .insert(schema.institutions)
     .values(INSTITUTIONS.map((i) => ({ code: i.code, shortCode: i.shortCode, name: i.name, city: i.city, province: i.province, sector: i.sector, establishedYear: i.est, affiliatedUniversity: i.aff ?? null })))
     .returning();
   const inst = Object.fromEntries(instRows.map((r) => [r.shortCode, r]));
+  // Each institution has a main campus; Riverside also runs a second campus (campuses are child records, guide section 3).
+  await db.insert(schema.campuses).values([
+    ...instRows.map((r) => ({ institutionId: r.id, name: `Main campus, ${r.city}`, city: r.city, province: r.province, isMain: true })),
+    { institutionId: inst.RUH.id, name: "Hayatabad campus, Peshawar", city: "Peshawar", province: "Khyber Pakhtunkhwa", address: "Phase 5, Hayatabad", isMain: false },
+  ]);
   for (const r of instRows) await audit(db, { actor: "system", action: "institution.approved", entity: "institution", entityId: r.code, details: { name: r.name } });
 
   await db.insert(schema.staff).values(STAFF.map(([username, displayName, role, province, s]) => ({ username, displayName, email: `${username}@demo.pcp.local`, role, province, institutionId: s ? inst[s].id : null, createdBy: "system" })));
@@ -328,6 +348,9 @@ async function main() {
     { audience: "user:pcp.inspector", title: "Inspection scheduled: NOC-2026-0004", body: "Sindh Coastal University, 12 Oct 2026.", link: "/pcp/inspections" },
     { audience: "role:pcp_officer", title: "Possible duplicate faculty", body: "Dr. Mohammad Usman Tariq (FRU) may be the same person as Dr. Muhammad Usman Tariq (RBU).", link: "/pcp/verification" },
   ]);
+
+  // Module data (one file per module in scripts/seed/), after the core registry exists.
+  await seedModules();
 
   await audit(db, { actor: "system", action: "seed.completed", entity: "system", entityId: "seed", details: { institutions: INSTITUTIONS.length, faculty: facNo, students: stuCount } });
   console.log(`Seeded ${INSTITUTIONS.length} institutions, ${facNo} faculty, ${stuCount} students, 7 applications.`);

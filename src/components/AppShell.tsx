@@ -4,7 +4,21 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Badge, Button, Empty, Layout, Menu, Popover, Tooltip } from "antd";
 import {
+  AlertOutlined,
   AuditOutlined,
+  BarChartOutlined,
+  CalendarOutlined,
+  CustomerServiceOutlined,
+  FileDoneOutlined,
+  IdcardOutlined,
+  MailOutlined,
+  MedicineBoxOutlined,
+  ProfileOutlined,
+  ReconciliationOutlined,
+  SettingOutlined,
+  SolutionOutlined as StudentIcon,
+  UserAddOutlined,
+  WalletOutlined,
   BankOutlined,
   BellOutlined,
   DashboardOutlined,
@@ -33,6 +47,20 @@ const ICONS: Record<string, React.ReactNode> = {
   institutions: <BankOutlined />,
   audit: <AuditOutlined />,
   users: <UsergroupAddOutlined />,
+  profile: <ProfileOutlined />,
+  annual: <FileDoneOutlined />,
+  payments: <WalletOutlined />,
+  appeals: <AlertOutlined />,
+  messages: <MailOutlined />,
+  help: <CustomerServiceOutlined />,
+  onboarding: <UserAddOutlined />,
+  council: <CalendarOutlined />,
+  pharmacists: <MedicineBoxOutlined />,
+  reports: <BarChartOutlined />,
+  rules: <SettingOutlined />,
+  accounts: <ReconciliationOutlined />,
+  record: <IdcardOutlined />,
+  student: <StudentIcon />,
 };
 
 export type NavItem = { href: string; label: string; icon: string; group: string; badge?: number };

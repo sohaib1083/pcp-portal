@@ -104,6 +104,7 @@ try {
   await page.getByRole("button", { name: /Generate challan/ }).click();
   await toast(page, /PSID/);
   await page.getByRole("button", { name: /Simulate bank confirmation/ }).click();
+  await page.locator(".ant-modal").getByRole("button", { name: "Confirm" }).click();
   log("POC paid →", await toast(page, /Payment confirmed/));
   await ctx.close();
 
@@ -205,6 +206,8 @@ try {
   log("nhc.poc downloading another institution's document → HTTP", dl.status());
   await ctx.close();
 
+  // Steps 13–16 create and disable shared Keycloak users; skip them on parallel development copies.
+  if (!process.env.E2E_SKIP_ADMIN) {
   // 13. Super Admin onboards a new institution (tenant) with its POC
   ({ ctx, page } = await login("pcp.admin"));
   await page.goto(`${BASE}/pcp/admin`);
@@ -267,6 +270,8 @@ try {
     await p.click("#kc-login");
     log("disabled nhc.poc →", (await p.getByText(/disabled/i).first().innerText()).trim());
     await c.close();
+  }
+
   }
 
   // 17. Sign out, then Back: the protected page is not shown from cache

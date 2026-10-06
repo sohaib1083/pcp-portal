@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { auth } from "./auth";
 import { db, schema } from "@/db";
-import { can, isInstitutionUser, isPcpUser, primaryRole, type Permission } from "./roles";
+import { can, kindOf, primaryRole, type Permission, type UserKind } from "./roles";
 
 export type CurrentUser = {
   username: string;
@@ -10,7 +10,7 @@ export type CurrentUser = {
   roles: string[];
   role: string;
   institutionCode: string | null;
-  kind: "institution" | "pcp" | "unknown";
+  kind: UserKind;
 };
 
 export async function getUser(): Promise<CurrentUser | null> {
@@ -20,11 +20,10 @@ export async function getUser(): Promise<CurrentUser | null> {
   // A user the Super Admin has disabled is locked out at once, even with a live session.
   const dir = await db.query.staff.findFirst({ where: eq(schema.staff.username, username) });
   if (!dir || !dir.active) return null;
-  const kind = isInstitutionUser(roles) ? "institution" : isPcpUser(roles) ? "pcp" : "unknown";
-  return { username, name, roles, role: primaryRole(roles), institutionCode, kind };
+  return { username, name, roles, role: primaryRole(roles), institutionCode, kind: kindOf(roles) };
 }
 
-export async function requireUser(kind?: "institution" | "pcp"): Promise<CurrentUser> {
+export async function requireUser(kind?: UserKind): Promise<CurrentUser> {
   const user = await getUser();
   if (!user) redirect("/login");
   if (kind && user.kind !== kind) redirect("/home");

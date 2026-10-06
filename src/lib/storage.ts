@@ -22,12 +22,22 @@ export function safeName(name: string) {
 }
 
 export async function putFile(institutionCode: string, folder: string, version: number, fileName: string, bytes: Buffer) {
-  const cleanFolder = folder
-    .split("/")
-    .map((p) => p.replace(/[^A-Za-z0-9._-]+/g, "-"))
-    .filter((p) => p && p !== "..")
-    .join("/");
-  const key = `institutions/${institutionCode}/${cleanFolder}/v${version}-${safeName(fileName)}`;
+  return putFileAt(`institutions/${institutionCode}`, folder, version, fileName, bytes);
+}
+
+/**
+ * Store a file under any owner prefix: institutions/<PCP-UNI-ID>, onboarding/<REG-ref> (before approval)
+ * or pharmacists/<reg-no>. Versions never overwrite each other.
+ */
+export async function putFileAt(prefix: string, folder: string, version: number, fileName: string, bytes: Buffer) {
+  const clean = (p: string) =>
+    p
+      .split("/")
+      .map((x) => x.replace(/[^A-Za-z0-9._-]+/g, "-"))
+      .filter((x) => x && x !== "..")
+      .join("/");
+  const cleanFolder = clean(folder);
+  const key = `${clean(prefix)}/${cleanFolder}/v${version}-${safeName(fileName)}`;
   const full = path.join(ROOT, key);
   await mkdir(path.dirname(full), { recursive: true });
   await writeFile(full, bytes);

@@ -10,6 +10,7 @@ import { formatPKR } from "@/lib/format";
 import { AppHeader, CertificateCard, ChecksCard, DataDescriptions, DocumentsCard, TimelineCard, uploadDocument } from "./AppParts";
 import { Pill, fmtDate } from "./common";
 import { FillDemo, SamplePdfButton } from "./demo-helpers";
+import { useOtp } from "./OtpConfirm";
 import type { ActionResult } from "@/app/actions/faculty";
 
 type Perms = { canEdit: boolean; canUpload: boolean; canPay: boolean; canSubmit: boolean; canRespond: boolean };
@@ -60,6 +61,7 @@ export default function InstitutionApplicationView({ d, perms }: { d: AppDetail;
   const [pending, start] = useTransition();
   const [qr, setQr] = useState<string | null>(null);
   const [form] = Form.useForm();
+  const { withOtp, otpModal } = useOtp();
   const draft = d.app.status === "DRAFT";
   const failing = d.app.checks.filter((c) => !c.ok).length;
 
@@ -90,6 +92,7 @@ export default function InstitutionApplicationView({ d, perms }: { d: AppDetail;
 
   return (
     <>
+      {otpModal}
       <AppHeader d={d} />
       <Row gutter={18}>
         <Col xs={24} lg={15}>
@@ -246,7 +249,7 @@ export default function InstitutionApplicationView({ d, perms }: { d: AppDetail;
                   </div>
                 </div>
                 {perms.canPay ? (
-                  <Button block type="primary" style={{ marginTop: 10 }} icon={<BankOutlined />} loading={pending} onClick={() => run(() => payFeeDemo(d.app.ref))}>
+                  <Button block type="primary" style={{ marginTop: 10 }} icon={<BankOutlined />} loading={pending} onClick={() => withOtp(`payment:${d.app.feePsid}`, "Confirm the fee payment", async (code) => run(() => payFeeDemo(d.app.ref, code)))}>
                     Simulate bank confirmation (demo)
                   </Button>
                 ) : (

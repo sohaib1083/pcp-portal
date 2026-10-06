@@ -12,12 +12,26 @@ const INSTITUTIONS = [
   ["PCP-UNI-000108", "scu", "Ali Raza", "Memon"],
 ];
 const ROLES = [
-  ["inst_poc", "Institution Focal Person (POC)"],
+  ["inst_poc", "Head of institution"],
+  ["inst_principal", "Principal or Dean"],
+  ["inst_dept_admin", "Department administrator"],
+  ["inst_data_entry", "Data-entry officer"],
+  ["inst_exam", "Examination officer"],
+  ["inst_finance", "Finance officer"],
+  ["inst_applicant", "Institution applicant (onboarding only)"],
+  ["pcp_registration", "PCP Registration officer"],
+  ["pcp_coordinator", "PCP Inspection coordinator"],
+  ["pcp_accounts", "PCP Accounts officer"],
+  ["pcp_verification", "PCP Verification officer"],
+  ["student", "Student (own record)"],
+  ["pharmacist", "Registered pharmacist (own record)"],
   ["pcp_admin", "PCP Super Admin: users and institutions"],
   ["pcp_officer", "PCP Officer: processes applications"],
   ["pcp_inspector", "PCP Inspector: assigned inspections only"],
   ["pcp_secretary", "PCP Secretary: council decisions and certificates"],
 ];
+// Extra local ports for development servers (parallel work on separate databases).
+const DEV_PORTS = [3201, 3202, 3203, 3204, 3205, 3206, 3207, 3208, 3209];
 const pw = [{ type: "password", value: "Demo@1234", temporary: false }];
 const user = (username, firstName, lastName, role, inst) => ({
   username, enabled: true, firstName, lastName, email: `${username}@demo.pcp.local`, emailVerified: true,
@@ -30,6 +44,24 @@ const users = [
   user("pcp.inspector2", "Zainab", "Qureshi", "pcp_inspector"),
   user("pcp.secretary", "Nadia", "Hussain", "pcp_secretary"),
   ...INSTITUTIONS.map(([code, s, f, l]) => user(`${s}.poc`, f, l, "inst_poc", code)),
+  // Riverside's other jobs (guide section 2: people inside the account have jobs, not a shared password)
+  user("ruh.dean", "Imran", "Shah", "inst_principal", "PCP-UNI-000101"),
+  user("ruh.admin", "Saba", "Qureshi", "inst_dept_admin", "PCP-UNI-000101"),
+  user("ruh.entry", "Junaid", "Akhtar", "inst_data_entry", "PCP-UNI-000101"),
+  user("ruh.exam", "Nida", "Farooq", "inst_exam", "PCP-UNI-000101"),
+  user("ruh.finance", "Waqas", "Butt", "inst_finance", "PCP-UNI-000101"),
+  // PCP officers with a single duty each
+  user("pcp.registration", "Hina", "Malik", "pcp_registration"),
+  user("pcp.coordinator", "Bilal", "Ahmed", "pcp_coordinator"),
+  user("pcp.accounts", "Sadia", "Raza", "pcp_accounts"),
+  user("pcp.verification", "Kashif", "Iqbal", "pcp_verification"),
+  // External users
+  user("student.ruh", "Areeba", "Noor", "student"),
+  user("student.rbu", "Hamza", "Iqbal", "student"),
+  user("pharm.ali", "Ali", "Raza", "pharmacist"),
+  user("pharm.sana", "Sana", "Memon", "pharmacist"),
+  // An institution part-way through self-registration (nothing else opens until PCP approves)
+  user("ivc.applicant", "Rehana", "Baloch", "inst_applicant"),
   {
     username: "service-account-pcp-admin-api", enabled: true, serviceAccountClientId: "pcp-admin-api",
     clientRoles: { "realm-management": ["manage-users", "view-users", "query-users", "query-groups", "view-realm"] },
@@ -52,7 +84,7 @@ const realm = {
     {
       clientId: "pcp-portal", name: "PCP Portal", enabled: true, protocol: "openid-connect", publicClient: false,
       clientAuthenticatorType: "client-secret", secret: "pcp-portal-demo-secret", standardFlowEnabled: true, directAccessGrantsEnabled: false,
-      redirectUris: ["http://localhost:8088/*"], webOrigins: ["http://localhost:8088"], rootUrl: "http://localhost:8088", baseUrl: "/",
+      redirectUris: ["http://localhost:8088/*", ...DEV_PORTS.map((p) => `http://localhost:${p}/*`)], webOrigins: ["http://localhost:8088"], rootUrl: "http://localhost:8088", baseUrl: "/",
       attributes: { "post.logout.redirect.uris": "http://localhost:8088/*", "pkce.code.challenge.method": "S256" },
       protocolMappers: tokenMappers,
     },

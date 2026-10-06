@@ -7,7 +7,7 @@ export type Persona = {
   name: string;
   role: string;
   org: string;
-  side: "institution" | "pcp";
+  side: "institution" | "pcp" | "external";
   blurb: string;
 };
 
@@ -21,7 +21,23 @@ export const PERSONAS: Persona[] = [
   { username: "pcp.admin", name: "Super Admin", role: "PCP Super Admin", org: "System administration", side: "pcp", blurb: "Onboards institutions, manages users, reads the audit log" },
 ];
 
-export const personaFor = (username: string | null | undefined) => PERSONAS.find((p) => p.username === username);
+/** Every other demo account, by job (guide section 2). Shown on the sign-in page under "More roles". */
+export const MORE_PERSONAS: Persona[] = [
+  { username: "ruh.dean", name: "Dr. Imran Shah", role: "Principal or Dean", org: "Riverside University", side: "institution", blurb: "Confirms programme data, responds to deficiencies, submits" },
+  { username: "ruh.admin", name: "Saba Qureshi", role: "Department administrator", org: "Riverside University", side: "institution", blurb: "Maintains campuses, laboratories and library" },
+  { username: "ruh.entry", name: "Junaid Akhtar", role: "Data-entry officer", org: "Riverside University", side: "institution", blurb: "Enters faculty and student drafts; cannot submit" },
+  { username: "ruh.exam", name: "Nida Farooq", role: "Examination officer", org: "Riverside University", side: "institution", blurb: "Files the annual student return and results" },
+  { username: "ruh.finance", name: "Waqas Butt", role: "Finance officer", org: "Riverside University", side: "institution", blurb: "Pays fees and sees dues" },
+  { username: "pcp.registration", name: "Hina Malik", role: "Registration officer", org: "PCP", side: "pcp", blurb: "Approves institution onboarding, scrutinises cases, keeps the pharmacist register" },
+  { username: "pcp.coordinator", name: "Bilal Ahmed", role: "Inspection coordinator", org: "PCP", side: "pcp", blurb: "Assigns inspection teams with the conflict check" },
+  { username: "pcp.accounts", name: "Sadia Raza", role: "Accounts officer", org: "PCP", side: "pcp", blurb: "Receipts, reconciliation and outstanding dues" },
+  { username: "pcp.verification", name: "Kashif Iqbal", role: "Verification officer", org: "PCP", side: "pcp", blurb: "Documents, faculty qualifications, duplicates, annual returns" },
+  { username: "student.ruh", name: "Areeba Noor", role: "Student", org: "Riverside University · PharmD", side: "external", blurb: "Sees her PCP student ID, enrolment and result status" },
+  { username: "pharm.ali", name: "Ali Raza", role: "Registered pharmacist", org: "Punjab Pharmacy Council", side: "external", blurb: "Sees his registration, updates his practice place" },
+  { username: "ivc.applicant", name: "Rehana Baloch", role: "Institution applicant", org: "Indus Valley College (onboarding)", side: "external", blurb: "Mid-way through self-registration; nothing else opens until PCP approves" },
+];
+
+export const personaFor = (username: string | null | undefined) => [...PERSONAS, ...MORE_PERSONAS].find((p) => p.username === username);
 
 export type Step = {
   act: string;

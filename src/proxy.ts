@@ -6,7 +6,15 @@ import { getToken } from "next-auth/jwt";
 // 2. institution users stay in /institution, PCP users stay in /pcp
 // 3. protected pages are never cached, so Back after sign-out cannot show them
 // The proxy only READS the session token. It never re-issues the cookie, which would undo sign-out.
-const PROTECTED = /^\/(institution|pcp|certificate|home)(\/|$)/;
+const PROTECTED = /^\/(institution|pcp|certificate|home|student|pharmacist|onboarding)(\/|$)/;
+// Each area belongs to one kind of user (see HOME_BY_KIND in lib/roles.ts).
+const AREAS: [prefix: string, allowed: (roles: string[]) => boolean][] = [
+  ["/pcp", (r) => r.some((x) => x.startsWith("pcp_"))],
+  ["/institution", (r) => r.some((x) => x.startsWith("inst_") && x !== "inst_applicant")],
+  ["/student", (r) => r.includes("student")],
+  ["/pharmacist", (r) => r.includes("pharmacist")],
+  ["/onboarding", (r) => r.includes("inst_applicant")],
+];
 
 export default async function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
@@ -34,10 +42,9 @@ export default async function proxy(req: NextRequest) {
   }
 
   const roles = (token?.roles as string[] | undefined) ?? [];
-  const isInstitution = roles.includes("inst_poc");
-  const isPcp = roles.some((r) => r.startsWith("pcp_"));
-  if (pathname.startsWith("/pcp") && !isPcp) return NextResponse.redirect(new URL("/institution", req.nextUrl));
-  if (pathname.startsWith("/institution") && !isInstitution) return NextResponse.redirect(new URL(isPcp ? "/pcp" : "/login", req.nextUrl));
+  for (const [prefix, allowed] of AREAS) {
+    if ((pathname === prefix || pathname.startsWith(prefix + "/")) && !allowed(roles)) return NextResponse.redirect(new URL("/home", req.nextUrl));
+  }
 
   const res = NextResponse.next();
   if (isProtected) {

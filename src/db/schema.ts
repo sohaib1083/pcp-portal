@@ -27,6 +27,23 @@ export const institutions = pgTable("institutions", {
   status: text("status").notNull().default("ACTIVE"), // ACTIVE | PENDING | SUSPENDED
   affiliatedUniversity: text("affiliated_university"),
   establishedYear: integer("established_year"),
+  email: text("email"),
+  phone: text("phone"),
+  address: text("address"),
+  website: text("website"),
+  onboardingId: integer("onboarding_id"), // the onboarding request that created it (self-registered institutions)
+  createdAt: createdAt(),
+});
+
+/** A campus is a child of its institution, not a second account (guide section 3). */
+export const campuses = pgTable("campuses", {
+  id: serial("id").primaryKey(),
+  institutionId: integer("institution_id").notNull().references(() => institutions.id),
+  name: text("name").notNull(),
+  city: text("city").notNull(),
+  province: text("province").notNull(),
+  address: text("address"),
+  isMain: boolean("is_main").notNull().default(false),
   createdAt: createdAt(),
 });
 
@@ -55,6 +72,7 @@ export const accreditationHistory = pgTable("accreditation_history", {
   validUntil: integer("valid_until").notNull(),
   intake: integer("intake").notNull(),
   decision: text("decision").notNull(),
+  applicationRef: text("application_ref"), // the case behind this row; rows are never overwritten
 });
 
 export const faculty = pgTable(
@@ -107,6 +125,11 @@ export const students = pgTable("students", {
   enrollmentYear: integer("enrollment_year").notNull(),
   currentYear: integer("current_year").notNull().default(1),
   status: text("status").notNull().default("ENROLLED"), // ENROLLED | PROMOTED | REPEAT | GRADUATED | WITHDRAWN
+  result: text("result"), // PASS | FAIL | null (latest annual result)
+  resultYear: integer("result_year"),
+  degreeVerified: boolean("degree_verified").notNull().default(false), // university/HEC check (simulated)
+  eligibleForRegistration: boolean("eligible_for_registration").notNull().default(false),
+  username: text("username").unique(), // student login, if the student has one
   createdAt: createdAt(),
 });
 
@@ -133,6 +156,15 @@ export const applications = pgTable("applications", {
   certificateNo: text("certificate_no").unique(),
   issuedAt: timestamp("issued_at", { withTimezone: true }),
   validUntil: date("valid_until"),
+  campusId: integer("campus_id"), // the campus the case is for
+  stageStartedAt: timestamp("stage_started_at", { withTimezone: true }), // SLA clock for the current stage
+  stageDueAt: timestamp("stage_due_at", { withTimezone: true }),
+  escalatedAt: timestamp("escalated_at", { withTimezone: true }),
+  deferUntil: date("defer_until"), // a deferral is not a silent hold: it has a reason and a date
+  decisionGrounds: text("decision_grounds"),
+  selfAssessment: jsonb("self_assessment").$type<SelfAssessmentItem[]>(), // accreditation and renewal
+  renewalOf: text("renewal_of"), // certificate or case this renewal continues
+  letterDocumentId: integer("letter_document_id"), // the generated decision letter
   createdBy: text("created_by").notNull(),
   createdAt: createdAt(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -172,8 +204,9 @@ export const inspections = pgTable("inspections", {
   id: serial("id").primaryKey(),
   applicationId: integer("application_id").notNull().references(() => applications.id),
   institutionId: integer("institution_id").notNull().references(() => institutions.id),
-  inspector: text("inspector").notNull(),
+  inspector: text("inspector").notNull(), // team lead; other members are in inspection_team
   scheduledFor: date("scheduled_for").notNull(),
+  scope: text("scope"), // what the institution should prepare
   status: text("status").notNull().default("SCHEDULED"), // SCHEDULED | SUBMITTED
   checklist: jsonb("checklist").$type<ChecklistItem[]>(),
   summary: text("summary"),
@@ -184,7 +217,9 @@ export const inspections = pgTable("inspections", {
 
 export const documents = pgTable("documents", {
   id: serial("id").primaryKey(),
-  institutionId: integer("institution_id").notNull().references(() => institutions.id),
+  institutionId: integer("institution_id").references(() => institutions.id), // null while an onboarding request is pending
+  onboardingId: integer("onboarding_id"),
+  pharmacistId: integer("pharmacist_id"),
   folder: text("folder").notNull(), // e.g. noc-applications/NOC-2026-0001
   docType: text("doc_type").notNull(),
   fileName: text("file_name").notNull(),
@@ -238,6 +273,73 @@ export const duplicateFlags = pgTable("duplicate_flags", {
   createdAt: createdAt(),
 });
 
+/**
+ * Outbox: every email and SMS the system would send, stored against its case (guide section 12).
+ * In the demo nothing leaves the server; the Messages screens show what was "sent".
+ */
+export const messages = pgTable("messages", {
+  id: serial("id").primaryKey(),
+  channel: text("channel").notNull(), // EMAIL | SMS
+  toAddress: text("to_address").notNull(),
+  toName: text("to_name"),
+  audience: text("audience"), // same form as notifications: inst:CODE | role:x | user:x
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  entity: text("entity"), // application | deficiency | onboarding | payment | annual_return | appeal | ticket | pharmacist | otp
+  entityRef: text("entity_ref"),
+  link: text("link"),
+  institutionId: integer("institution_id"),
+  createdAt: createdAt(),
+});
+
+/** One-time codes for officers and for anyone submitting a decision or a payment (guide section 12). */
+export const otpChallenges = pgTable("otp_challenges", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull(),
+  purpose: text("purpose").notNull(), // e.g. decision:NOC-2026-0006, payment:2026000...
+  codeHash: text("code_hash").notNull(),
+  sentTo: text("sent_to").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: createdAt(),
+});
+
+/** Fee payments: PSID challan, Raast QR or branch, with an automatic receipt (simulated bank). */
+export const payments = pgTable("payments", {
+  id: serial("id").primaryKey(),
+  psid: text("psid").notNull().unique(),
+  receiptNo: text("receipt_no").unique(), // RCPT-2026-000123, set when paid
+  institutionId: integer("institution_id"),
+  onboardingId: integer("onboarding_id"),
+  applicationId: integer("application_id"),
+  purpose: text("purpose").notNull(), // e.g. "NOC fee · Pharmacy Technician"
+  amount: integer("amount").notNull(),
+  status: text("status").notNull().default("PENDING"), // PENDING | PAID | RECONCILED | CANCELLED
+  method: text("method"), // RAAST_QR | BANK_BRANCH | INTERNET_BANKING
+  payerName: text("payer_name"),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  bankRef: text("bank_ref"),
+  receiptDocumentId: integer("receipt_document_id"),
+  reconciledBy: text("reconciled_by"),
+  reconciledAt: timestamp("reconciled_at", { withTimezone: true }),
+  createdBy: text("created_by").notNull(),
+  createdAt: createdAt(),
+});
+
+/** Outstanding dues block a new submission until paid or waived (guide section 4). */
+export const dues = pgTable("dues", {
+  id: serial("id").primaryKey(),
+  institutionId: integer("institution_id").notNull().references(() => institutions.id),
+  description: text("description").notNull(),
+  amount: integer("amount").notNull(),
+  dueDate: date("due_date").notNull(),
+  status: text("status").notNull().default("OUTSTANDING"), // OUTSTANDING | PAID | WAIVED
+  paymentId: integer("payment_id"),
+  waivedBy: text("waived_by"),
+  note: text("note"),
+  createdAt: createdAt(),
+});
+
 export const rules = pgTable("rules", {
   id: serial("id").primaryKey(),
   key: text("key").notNull(),
@@ -274,8 +376,23 @@ export type ApplicationData = {
 
 export type CheckResult = { key: string; label: string; ok: boolean; detail: string };
 
+export type SelfAssessmentItem = {
+  criterion: string;
+  rating: "MET" | "PARTLY" | "NOT_MET";
+  comment: string;
+};
+
 export type ChecklistItem = {
   criterion: string;
   result: "COMPLIANT" | "PARTIAL" | "NON_COMPLIANT" | "NA";
   remarks: string;
 };
+
+// Module tables, one file per module (see src/db/modules/).
+export * from "./modules/onboarding";
+export * from "./modules/workflow";
+export * from "./modules/faculty";
+export * from "./modules/students";
+export * from "./modules/pharmacists";
+export * from "./modules/council";
+export * from "./modules/accounts";

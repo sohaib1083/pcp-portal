@@ -1,5 +1,5 @@
 // Server-side switches for the demo build. Never enable DEMO_MODE in production.
-import { PERSONAS } from "./demo-story";
+import { MORE_PERSONAS, PERSONAS } from "./demo-story";
 
 export const DEMO_PASSWORD = "Demo@1234";
 
@@ -10,5 +10,5 @@ export function quickLoginEnabled() {
 }
 
 export function isDemoAccount(username: string) {
-  return PERSONAS.some((p) => p.username === username) || OTHER_POCS.includes(username);
+  return [...PERSONAS, ...MORE_PERSONAS].some((p) => p.username === username) || OTHER_POCS.includes(username) || username === "student.rbu" || username === "pharm.sana";
 }

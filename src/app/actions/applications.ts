@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
+import { confirmPayment, createChallan } from "@/lib/payments";
+import { requireOtp } from "@/lib/otp";
 import { audit } from "@/lib/audit";
 import { feeFor, refreshChecks, runChecks } from "@/lib/rules";
 import { requireInstitution } from "@/lib/session";
@@ -73,27 +75,30 @@ export async function recheck(ref: string): Promise<ActionResult> {
 export async function generateChallan(ref: string): Promise<ActionResult> {
   const { user, inst } = await requireInstitution("inst.fee.pay");
   const app = await loadOwnApp(ref, inst.id);
-  if (app.feePsid) return { ok: true, message: "Challan already generated", level: "success" };
-  const psid = psidFor(app.id);
-  await db.update(schema.applications).set({ feePsid: psid, updatedAt: new Date() }).where(eq(schema.applications.id, app.id));
-  await audit(db, { actor: user.username, action: "fee.challan.generated", entity: "application", entityId: ref, details: { psid, amount: app.feeAmount } });
+  if (app.feePaidAt) return { ok: true, message: "Already paid", level: "success" };
+  const pay = await db.transaction(async (tx) => {
+    const p = await createChallan(tx, { institutionId: inst.id, applicationId: app.id, purpose: `${app.kind === "NOC" ? "NOC" : app.kind === "RENEWAL" ? "Renewal" : "Accreditation"} fee · ${app.programType === "PHARMD" ? "PharmD" : "Pharmacy Technician"} · ${ref}`, amount: app.feeAmount, createdBy: user.username });
+    await audit(tx, { actor: user.username, action: "fee.challan.generated", entity: "application", entityId: ref, details: { psid: p.psid, amount: p.amount } });
+    return p;
+  });
   revalidatePath(`/institution/applications/${ref}`);
-  return { ok: true, message: `Challan generated. PSID ${psid}`, level: "success" };
+  return { ok: true, message: `Challan generated. PSID ${pay.psid}`, level: "success" };
 }
 
-/** Demo only: simulates the bank callback after a Raast QR / PSID payment. */
-export async function payFeeDemo(ref: string): Promise<ActionResult> {
+/** Demo only: simulates the bank callback after a Raast QR / PSID payment. Needs a one-time code. */
+export async function payFeeDemo(ref: string, otp?: string): Promise<ActionResult> {
   const { user, inst } = await requireInstitution("inst.fee.pay");
   const app = await loadOwnApp(ref, inst.id);
   if (!app.feePsid) return { ok: false, message: "Generate the challan first.", level: "error" };
   if (app.feePaidAt) return { ok: true, message: "Already paid.", level: "success" };
-  await db.transaction(async (tx) => {
-    await tx.update(schema.applications).set({ feePaidAt: new Date(), feePaidBy: user.username, feeMethod: "Raast QR (demo)", updatedAt: new Date() }).where(eq(schema.applications.id, app.id));
-    await notify(tx, "role:pcp_officer", `Fee received: ${ref}`, `Rs ${app.feeAmount.toLocaleString()} via Raast QR (demo) from ${inst.shortCode}.`, `/pcp/applications/${ref}`);
-    await audit(tx, { actor: user.username, action: "fee.paid", entity: "application", entityId: ref, details: { amount: app.feeAmount, method: "RAAST_QR_DEMO" } });
-  });
+  try {
+    await requireOtp(user.username, `payment:${app.feePsid}`, otp);
+  } catch (e) {
+    return { ok: false, message: (e as Error).message, level: "error" };
+  }
+  const paid = await db.transaction((tx) => confirmPayment(tx, { psid: app.feePsid!, method: "RAAST_QR", payerName: inst.name, actor: user.username }));
   revalidatePath(`/institution/applications/${ref}`);
-  return { ok: true, message: "Payment confirmed (demo bank callback).", level: "success" };
+  return { ok: true, message: `Payment confirmed (demo bank callback). Receipt ${paid.receiptNo}.`, level: "success" };
 }
 
 export async function submitApplication(ref: string): Promise<ActionResult> {

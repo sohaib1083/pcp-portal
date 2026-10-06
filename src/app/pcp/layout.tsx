@@ -22,15 +22,25 @@ export default async function PcpLayout({ children }: { children: React.ReactNod
   const [{ flags }] = await db.select({ flags: sql<number>`count(*)::int` }).from(schema.duplicateFlags).where(eq(schema.duplicateFlags.status, "OPEN"));
 
   const nav: NavItem[] = [];
-  if (can(r, "pcp.dashboard")) nav.push({ href: "/pcp", label: "Executive dashboard", icon: "dashboard", group: "Overview" });
+  if (can(r, "pcp.dashboard")) nav.push({ href: "/pcp", label: "Dashboard", icon: "dashboard", group: "Overview" });
+  if (can(r, "pcp.onboarding.review")) nav.push({ href: "/pcp/onboarding", label: "Institution onboarding", icon: "onboarding", group: "Casework" });
   if (can(r, "pcp.app.view")) nav.push({ href: "/pcp/applications", label: "Applications", icon: "applications", group: "Casework", badge: needsMe || undefined });
-  if (r.includes("pcp_inspector") || r.includes("pcp_officer"))
+  if (can(r, "pcp.inspection.view"))
     nav.push({ href: "/pcp/inspections", label: "Inspections", icon: "inspections", group: "Casework", badge: r.includes("pcp_inspector") ? myInspections || undefined : undefined });
   if (can(r, "pcp.faculty.verify") || r.includes("pcp_admin"))
-    nav.push({ href: "/pcp/verification", label: "Data verification", icon: "verification", group: "Casework", badge: r.includes("pcp_officer") ? flags || undefined : undefined });
+    nav.push({ href: "/pcp/verification", label: "Data verification", icon: "verification", group: "Casework", badge: can(r, "pcp.faculty.verify") ? flags || undefined : undefined });
+  if (can(r, "pcp.annual.review") || r.includes("pcp_admin")) nav.push({ href: "/pcp/annual-returns", label: "Annual returns", icon: "annual", group: "Casework" });
+  if (can(r, "pcp.council.manage") || can(r, "pcp.app.view")) nav.push({ href: "/pcp/council", label: "Council meetings", icon: "council", group: "Casework" });
+  if (can(r, "pcp.appeals.review")) nav.push({ href: "/pcp/appeals", label: "Appeals", icon: "appeals", group: "Casework" });
+  if (can(r, "pcp.helpdesk")) nav.push({ href: "/pcp/helpdesk", label: "Help desk", icon: "help", group: "Casework" });
   if (can(r, "pcp.app.view")) nav.push({ href: "/pcp/institutions", label: "Institutions", icon: "institutions", group: "Registry" });
+  if (can(r, "pcp.pharmacists.manage") || can(r, "pcp.dashboard")) nav.push({ href: "/pcp/pharmacists", label: "Pharmacist register", icon: "pharmacists", group: "Registry" });
   if (can(r, "pcp.documents.view")) nav.push({ href: "/pcp/documents", label: "Documents", icon: "documents", group: "Registry" });
+  if (can(r, "pcp.accounts.view")) nav.push({ href: "/pcp/accounts", label: "Payments & reconciliation", icon: "accounts", group: "Finance & reports" });
+  if (can(r, "pcp.reports.view")) nav.push({ href: "/pcp/reports", label: "Reports & exports", icon: "reports", group: "Finance & reports" });
   if (can(r, "pcp.users.manage")) nav.push({ href: "/pcp/admin", label: "Users & institutions", icon: "users", group: "Administration" });
+  if (can(r, "pcp.rules.manage")) nav.push({ href: "/pcp/rules", label: "Reference rules", icon: "rules", group: "Administration" });
+  if (can(r, "pcp.dashboard") || r.includes("pcp_inspector")) nav.push({ href: "/pcp/messages", label: "Messages", icon: "messages", group: "Administration" });
   if (can(r, "pcp.audit.view")) nav.push({ href: "/pcp/audit", label: "Audit log", icon: "audit", group: "Administration" });
 
   const audiences = [`user:${user.username}`, ...r.map((x) => `role:${x}`)];

@@ -302,6 +302,7 @@ const SCRIPT = [
   }),
   S("Here we simulate the bank's confirmation. In production it arrives automatically.", async () => {
     await tap(page.getByRole("button", { name: /Simulate bank confirmation/ }));
+  await tap(page.locator(".ant-modal").getByRole("button", { name: "Confirm" }), 500);
     await toast(/Payment confirmed/);
   }),
 

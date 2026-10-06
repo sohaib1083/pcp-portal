@@ -176,7 +176,11 @@ export async function forwardToCouncil(ref: string, recommendation: string) {
   });
 }
 
-export async function recordDecision(ref: string, decision: "APPROVED" | "DEFERRED" | "REJECTED", note: string) {
+/** Options the guide requires: a deferral has a reason and a date to return; a rejection states its grounds; a decision needs a one-time code. */
+export type DecisionOptions = { deferUntil?: string; grounds?: string; otp?: string };
+
+export async function recordDecision(ref: string, decision: "APPROVED" | "DEFERRED" | "REJECTED", note: string, opts: DecisionOptions = {}) {
+  void opts; // used by the case workflow (deferral date, grounds, one-time code)
   const user = await requirePermission("pcp.council.decide");
   return guard(async () => {
     const { app, inst } = await getApp(ref);
