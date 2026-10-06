@@ -38,6 +38,7 @@ export default async function AdminPage() {
         sector: i.sector,
         status: i.status,
         pocs: staff.filter((s) => s.institutionId === i.id && s.role === "inst_poc").map(user),
+        members: staff.filter((s) => s.institutionId === i.id && s.role !== "inst_poc").map(user),
       }))}
       staff={staff.filter((s) => s.role.startsWith("pcp_")).map(user)}
     />

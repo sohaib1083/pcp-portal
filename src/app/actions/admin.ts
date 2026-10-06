@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
 import { createInstitutionGroup, createUser, findUser, resetPassword, setEnabled } from "@/lib/keycloak-admin";
+import { INST_ROLES, PCP_ROLES } from "@/lib/roles";
 import { requirePermission } from "@/lib/session";
 import { notify } from "@/lib/util";
 
@@ -77,8 +78,9 @@ export async function onboardInstitution(raw: unknown): Promise<AdminResult> {
   });
 }
 
+// Every PCP role, plus the six institution roles for a chosen institution (guide section 2).
 const StaffInput = UserInput.extend({
-  role: z.enum(["inst_poc", "pcp_officer", "pcp_inspector", "pcp_secretary", "pcp_admin"]),
+  role: z.enum([...PCP_ROLES, ...INST_ROLES]),
   institutionCode: z.string().optional(),
   province: z.enum(PROVINCES).optional(),
 });
@@ -89,14 +91,15 @@ export async function createAccount(raw: unknown): Promise<AdminResult> {
     const v = StaffInput.parse(raw);
     await ensureUsernameFree(v.username);
     let institutionId: number | null = null;
-    if (v.role === "inst_poc") {
+    const instRole = (INST_ROLES as readonly string[]).includes(v.role);
+    if (instRole) {
       const inst = v.institutionCode ? await db.query.institutions.findFirst({ where: eq(schema.institutions.code, v.institutionCode) }) : null;
-      if (!inst) throw new Error("Choose the institution for this POC");
-      await ensureNoActivePoc(inst.id);
+      if (!inst) throw new Error(`Choose the institution for this ${v.role === "inst_poc" ? "POC" : "user"}`);
+      if (v.role === "inst_poc") await ensureNoActivePoc(inst.id);
       institutionId = inst.id;
     }
     if (v.role === "pcp_inspector" && !v.province) throw new Error("Inspectors need a home province (used for the conflict-of-interest rule)");
-    const { password } = await createUser({ username: v.username, email: v.email, fullName: v.fullName, role: v.role, institutionCode: v.role === "inst_poc" ? v.institutionCode : null });
+    const { password } = await createUser({ username: v.username, email: v.email, fullName: v.fullName, role: v.role, institutionCode: instRole ? v.institutionCode : null });
     await db.transaction(async (tx) => {
       await tx.insert(schema.staff).values({ username: v.username, displayName: v.fullName, email: v.email, role: v.role, province: v.province ?? null, institutionId, createdBy: admin.username });
       await audit(tx, { actor: admin.username, action: "user.created", entity: "user", entityId: v.username, details: { role: v.role, institution: v.institutionCode ?? null } });

@@ -4,15 +4,25 @@ import { useRouter } from "next/navigation";
 import { Alert, App, Button, Card, Col, Drawer, Form, Input, Modal, Popconfirm, Row, Select, Space, Table, Tabs, Tag, Typography } from "antd";
 import { BankOutlined, KeyOutlined, PlusOutlined, StopOutlined, CheckOutlined } from "@ant-design/icons";
 import { createAccount, onboardInstitution, resetAccountPassword, setAccountActive, type AdminResult } from "@/app/actions/admin";
-import { ROLE_DESCRIPTIONS, ROLE_LABELS } from "@/lib/roles";
+import { INST_ROLES, PCP_ROLES, ROLE_DESCRIPTIONS, ROLE_LABELS } from "@/lib/roles";
 import { PageTitle, Person, Pill } from "./common";
 import { FillDemo } from "./demo-helpers";
 
 type User = { username: string; displayName: string; email: string | null; role: string; province: string | null; active: boolean; inKeycloak: boolean; createdAt: string };
-type Inst = { code: string; shortCode: string; name: string; city: string; province: string; sector: string; status: string; pocs: User[] };
+type Inst = { code: string; shortCode: string; name: string; city: string; province: string; sector: string; status: string; pocs: User[]; members: User[] };
 
 const PROVINCES = ["Punjab", "Sindh", "Khyber Pakhtunkhwa", "Balochistan", "Gilgit-Baltistan", "Islamabad Capital Territory", "Azad Jammu and Kashmir"];
-const PCP_ROLES = ["pcp_officer", "pcp_inspector", "pcp_secretary", "pcp_admin"];
+const isInstRole = (r: string) => (INST_ROLES as readonly string[]).includes(r);
+const roleOption = (r: string) => ({
+  value: r,
+  title: ROLE_LABELS[r],
+  label: (
+    <div style={{ whiteSpace: "normal", lineHeight: 1.35, padding: "2px 0" }}>
+      <b style={{ fontWeight: 600 }}>{ROLE_LABELS[r]}</b>
+      <div className="muted" style={{ fontSize: 12 }}>{ROLE_DESCRIPTIONS[r]}</div>
+    </div>
+  ),
+});
 
 export default function AdminView({ me, institutions, staff, kcError }: { me: string; institutions: Inst[]; staff: User[]; kcError: string | null }) {
   const { message } = App.useApp();
@@ -57,10 +67,10 @@ export default function AdminView({ me, institutions, staff, kcError }: { me: st
       <PageTitle
         eyebrow="Administration"
         title="Users & institutions"
-        sub="Only the Super Admin creates accounts. Each institution (tenant) has one focal-person account; PCP has four roles."
+        sub="The Super Admin creates PCP accounts and each institution's Head account. A Head then adds the institution's own staff. New institutions can also register themselves for PCP's approval."
         extra={
           <Space>
-            <Button icon={<PlusOutlined />} onClick={() => { userForm.resetFields(); setUserOpen({ role: "pcp_officer" }); }}>Add PCP user</Button>
+            <Button icon={<PlusOutlined />} onClick={() => { userForm.resetFields(); userForm.setFieldsValue({ role: "pcp_officer" }); setUserOpen({ role: "pcp_officer" }); }}>Add user</Button>
             <Button type="primary" icon={<BankOutlined />} onClick={() => { tenantForm.resetFields(); setTenantOpen(true); }}>Onboard institution</Button>
           </Space>
         }
@@ -91,6 +101,7 @@ export default function AdminView({ me, institutions, staff, kcError }: { me: st
                       },
                     },
                     { title: "Status", render: (_, r) => { const a = r.pocs.find((p) => p.active); return a ? status(a) : null; } },
+                    { title: "Staff", align: "right", render: (_, r) => <span className="tnum muted" title="Active accounts besides the Head">{r.members.filter((m) => m.active).length}</span> },
                     {
                       title: "",
                       render: (_, r) => {
@@ -104,11 +115,26 @@ export default function AdminView({ me, institutions, staff, kcError }: { me: st
                     },
                   ]}
                   expandable={{
-                    rowExpandable: (r) => r.pocs.some((p) => !p.active),
+                    rowExpandable: (r) => r.pocs.some((p) => !p.active) || r.members.length > 0,
                     expandedRowRender: (r) => (
-                      <div style={{ fontSize: 12 }}>
-                        <b>Previous POCs (history kept):</b>{" "}
-                        {r.pocs.filter((p) => !p.active).map((p) => <Tag key={p.username}>{p.displayName} · {p.username}</Tag>)}
+                      <div style={{ fontSize: 12, display: "grid", gap: 6 }}>
+                        {r.members.length ? (
+                          <div>
+                            <b>Staff added by the Head:</b>{" "}
+                            {r.members.map((m) => (
+                              <Tag key={m.username} color={m.active ? undefined : "red"}>
+                                {m.displayName} · {ROLE_LABELS[m.role] ?? m.role}
+                                {m.active ? "" : " · disabled"}
+                              </Tag>
+                            ))}
+                          </div>
+                        ) : null}
+                        {r.pocs.some((p) => !p.active) ? (
+                          <div>
+                            <b>Previous POCs (history kept):</b>{" "}
+                            {r.pocs.filter((p) => !p.active).map((p) => <Tag key={p.username}>{p.displayName} · {p.username}</Tag>)}
+                          </div>
+                        ) : null}
                       </div>
                     ),
                   }}
@@ -194,15 +220,26 @@ export default function AdminView({ me, institutions, staff, kcError }: { me: st
         </Form>
       </Drawer>
 
-      <Drawer title={userOpen?.role === "inst_poc" ? "Add institution POC" : "Add PCP user"} open={!!userOpen} onClose={() => setUserOpen(null)} size="large">
+      <Drawer title={userOpen?.role === "inst_poc" ? "Add institution POC" : "Add a user"} open={!!userOpen} onClose={() => setUserOpen(null)} size="large">
         <Form form={userForm} layout="vertical" initialValues={userOpen ?? {}} onFinish={(v) => run(() => createAccount(v), () => setUserOpen(null))}>
-          <Form.Item name="role" label="Role" rules={[{ required: true }]}>
-            <Select options={(userOpen?.role === "inst_poc" ? ["inst_poc"] : PCP_ROLES).map((r) => ({ value: r, label: `${ROLE_LABELS[r]} — ${ROLE_DESCRIPTIONS[r]}` }))} />
+          <Form.Item name="role" label="Role" rules={[{ required: true }]} extra="PCP roles work across the system. Institution roles belong to one institution you choose below.">
+            <Select
+              optionLabelProp="title"
+              listHeight={420}
+              options={
+                userOpen?.role === "inst_poc"
+                  ? [{ label: "Institution role", options: [roleOption("inst_poc")] }]
+                  : [
+                      { label: "PCP roles", options: PCP_ROLES.map(roleOption) },
+                      { label: "Institution roles (for a chosen institution)", options: INST_ROLES.map(roleOption) },
+                    ]
+              }
+            />
           </Form.Item>
           <Form.Item noStyle shouldUpdate={(a, b) => a.role !== b.role}>
             {({ getFieldValue }) =>
-              getFieldValue("role") === "inst_poc" ? (
-                <Form.Item name="institutionCode" label="Institution" rules={[{ required: true }]}>
+              isInstRole(getFieldValue("role") ?? "") ? (
+                <Form.Item name="institutionCode" label="Institution" rules={[{ required: true, message: "Choose the institution" }]} extra={getFieldValue("role") === "inst_poc" ? "One active Head (POC) per institution." : "The account joins this institution's group and sees only its data."}>
                   <Select showSearch optionFilterProp="label" options={institutions.map((i) => ({ value: i.code, label: `${i.code} · ${i.name}` }))} />
                 </Form.Item>
               ) : getFieldValue("role") === "pcp_inspector" ? (
