@@ -106,3 +106,19 @@ export async function confirmPayment(exec: Executor, o: { psid: string; method: 
 export async function outstandingDues(exec: Executor, institutionId: number) {
   return exec.select().from(schema.dues).where(and(eq(schema.dues.institutionId, institutionId), eq(schema.dues.status, "OUTSTANDING")));
 }
+
+/**
+ * Plain-English reason a submission is blocked by dues, or null when nothing is owed (guide section 4).
+ * For the case builder's checks, e.g. "Outstanding dues of Rs 60,000 (DUE-00001). Pay them under Payments & dues, or ask PCP Accounts to review."
+ */
+export async function duesBlock(exec: Executor, institutionId: number) {
+  const due = await outstandingDues(exec, institutionId);
+  if (!due.length) return null;
+  const amount = due.reduce((a, d) => a + d.amount, 0);
+  const refs = due.map((d) => `DUE-${String(d.id).padStart(5, "0")}`);
+  return {
+    amount,
+    refs,
+    message: `Outstanding dues of Rs ${amount.toLocaleString("en-PK")} (${refs.join(", ")}). Pay them under Payments & dues, or ask PCP Accounts to review.`,
+  };
+}
