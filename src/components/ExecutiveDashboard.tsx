@@ -150,7 +150,7 @@ export default function ExecutiveDashboard(p: {
         <Col xs={12} md={8} xl={4}><StatCard compact label="Current students" value={k.students.toLocaleString()} icon={<IdcardOutlined />} tone="violet" hint="Enrolled, not graduated" /></Col>
         <Col xs={12} md={8} xl={4}>{link("/pcp/applications", <StatCard compact clickable label="Awaiting council" value={k.awaitingDecision} icon={<ScheduleOutlined />} tone="neutral" hint={`${k.pendingInspections} inspections pending`} />)}</Col>
         <Col xs={12} md={8} xl={4}>
-          <StatCard compact label="Registered pharmacists" value="Via provinces" icon={<UserSwitchOutlined />} tone="neutral" help="Licensing sits with the provincial councils. This tile fills once their registers are linked through MoUs or APIs." hint="Provincial councils license" />
+          {link("/pcp/pharmacists", <StatCard compact clickable label="Registered pharmacists" value={k.pharmacists ?? 0} icon={<UserSwitchOutlined />} tone="neutral" help="PCP's index of the provincial councils' registers; the councils license pharmacists." hint={`${k.pharmacistsActive ?? 0} active`} />)}
         </Col>
       </Row>
 

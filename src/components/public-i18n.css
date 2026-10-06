@@ -1,0 +1,78 @@
+/* Public screens: English and Urdu (guide section 14), plus the pharmacist check and phone widths. */
+
+/* ---------- Urdu: Nastaliq, right to left ---------- */
+.lang-ur { font-family: var(--font-inter), var(--font-urdu), system-ui, -apple-system, "Segoe UI", sans-serif; }
+/* Letter-spacing breaks the joins of cursive scripts. */
+.lang-ur, .lang-ur * { letter-spacing: 0 !important; }
+.ur-text { font-family: var(--font-urdu), var(--font-inter), sans-serif; }
+/* Nastaliq is tall: give lines room so marks do not collide. */
+.lang-ur h1, .lang-ur h2, .lang-ur h3, .lang-ur .pub-h1, .lang-ur .pub-h2 { line-height: 1.75 !important; }
+.lang-ur p, .lang-ur .pub-lead, .lang-ur .pub-card p, .lang-ur .muted, .lang-ur .pub-flow-step span { line-height: 2 !important; }
+.lang-ur .pub-h1 { font-size: 40px; font-weight: 700; margin: 14px 0 10px; }
+.lang-ur .pub-kicker, .lang-ur .pcp-eyebrow { text-transform: none; font-size: 13px; padding-top: 2px; padding-bottom: 2px; }
+.lang-ur .pub-stat-l, .lang-ur .pub-card h3, .lang-ur .pub-flow-step b { line-height: 1.9; }
+.lang-ur .ant-tabs-tab { line-height: 1.9; }
+.lang-ur .ant-btn { line-height: 1.6; }
+/* IDs, numbers and codes keep their own left-to-right order inside Urdu text. */
+.lang-ur .mono, .lang-ur .ltr, .lang-ur bdi { unicode-bidi: isolate; direction: ltr; }
+.lang-ur .pub-kv > .mono { text-align: right; }
+.lang-ur .pub-search input, .lang-ur .ant-input { font-family: var(--font-inter), var(--font-urdu), sans-serif; }
+/* Nastaliq reads small next to Latin at the same size: lift body text a little. */
+.lang-ur .pub-lead { font-size: 18px !important; }
+.lang-ur .pub-card p, .lang-ur .pub-service-strip p, .lang-ur p.muted, .lang-ur .ph-result-say { font-size: 15px !important; }
+.lang-ur .pub-flow-step span, .lang-ur .pub-stat-l { font-size: 13.5px !important; }
+.lang-ur .pub-flow-step b, .lang-ur .pub-card h3 { font-size: 16px !important; }
+.lang-ur .pub-kv { font-size: 15px; }
+
+/* ---------- Header additions ---------- */
+.pub-nav-actions { display: flex; gap: 8px; align-items: center; }
+.pub-nav-link { color: rgba(255, 255, 255, 0.82); font-size: 13.5px; font-weight: 500; padding: 6px 8px; border-radius: 8px; white-space: nowrap; }
+.pub-nav-link:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+.pub-lang-toggle.ant-btn { min-width: 44px; }
+.pub-lang-toggle .ur-text { font-size: 15px; line-height: 1; position: relative; top: 1px; }
+.pub-hero-cta { display: flex; align-items: center; gap: 12px 14px; flex-wrap: wrap; margin-top: 22px; font-size: 13px; color: rgba(255, 255, 255, 0.72); }
+.pub-foot-links { display: inline-flex; gap: 14px; flex-wrap: wrap; }
+.pub-foot-links a { color: var(--brand); font-weight: 500; }
+
+/* ---------- Pharmacist service on the home page ---------- */
+.pub-service-strip { margin-top: 16px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; background: linear-gradient(135deg, #ffffff 0%, #f3faf6 100%); border: 1px solid var(--brand-100); border-radius: 16px; padding: 20px 22px; box-shadow: var(--shadow-sm); }
+.pub-service-strip .pub-card-icon { margin-bottom: 0; flex: none; }
+.pub-service-strip h3 { margin: 0 0 4px; font-size: 16px; font-weight: 650; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pub-service-strip p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.55; max-width: 760px; }
+.pub-tag { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--gold-50); color: #7a5b12; border: 1px solid #f0e2bb; }
+
+/* ---------- Verification panels ---------- */
+.pub-panel { background: #fff; border-radius: 20px; border: 1px solid var(--line); box-shadow: var(--shadow-md); padding: 8px 24px 24px; }
+.pub-kv { display: grid; grid-template-columns: 200px minmax(0, 1fr); row-gap: 12px; column-gap: 16px; font-size: 14px; }
+.ph-result { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; max-width: 760px; }
+.ph-result-head { display: flex; gap: 14px; align-items: flex-start; padding: 18px 20px; border-bottom: 1px solid; }
+.ph-result-icon { font-size: 34px; line-height: 1; flex: none; margin-top: 2px; }
+.ph-result-title { margin: 0 0 4px; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.ph-result-say { margin: 0; font-size: 14.5px; line-height: 1.55; color: var(--ink-2); }
+.ph-result-body { padding: 18px 20px 20px; }
+.ph-formats { display: flex; flex-wrap: wrap; gap: 6px 10px; font-size: 12.5px; color: var(--muted); margin: 0 0 18px; }
+.ph-formats code { font-size: 12px; background: var(--line-2); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; color: var(--ink-2); }
+
+/* ---------- Phones ---------- */
+@media (max-width: 960px) {
+  .pub-nav-wide { display: none !important; }
+}
+@media (max-width: 640px) {
+  .pub-panel { padding: 4px 14px 18px; border-radius: 16px; }
+  .pub-panel .ant-tabs-tab { padding: 12px 0; font-size: 14px; }
+  .pub-panel .ant-tabs-tab .anticon, .pub-lang-toggle .anticon { display: none; }
+  .pub-panel .ant-tabs-tab + .ant-tabs-tab { margin-inline-start: 18px; }
+  .pub-kv { grid-template-columns: minmax(0, 1fr); row-gap: 2px; }
+  .pub-kv > :nth-child(odd) { margin-top: 10px; font-size: 12.5px; }
+  .pub-kv > :first-child { margin-top: 0; }
+  .ph-result-head { padding: 16px; gap: 12px; }
+  .ph-result-body { padding: 14px 16px 16px; }
+  .ph-result-title { font-size: 18px; }
+  .ph-result-icon { font-size: 28px; }
+  .lang-ur .pub-h1 { font-size: 28px; }
+  .pub-nav-actions { gap: 6px; }
+  .pub-nav .pub-brand-text { font-size: 15px; }
+}
+@media (max-width: 400px) {
+  .pub-nav-signin .anticon { display: none; }
+}

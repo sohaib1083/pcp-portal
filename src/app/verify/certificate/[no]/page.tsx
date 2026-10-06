@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import CertificateVerify from "@/components/CertificateVerify";
 import { db, schema } from "@/db";
+import { getLang } from "@/lib/i18n-server";
 
 /** The page a certificate's QR code opens. Public. */
 export default async function VerifyCertificatePage({ params }: { params: Promise<{ no: string }> }) {
@@ -10,6 +11,7 @@ export default async function VerifyCertificatePage({ params }: { params: Promis
   const doc = app ? await db.query.documents.findFirst({ where: eq(schema.documents.fileName, `${no}.pdf`) }) : null;
   return (
     <CertificateVerify
+      lang={await getLang()}
       no={no}
       found={app && inst ? { institution: inst.name, code: inst.code, city: inst.city, programType: app.programType, intake: Number(app.data?.proposedIntake ?? 0), issuedAt: app.issuedAt?.toISOString() ?? null, validUntil: app.validUntil, sha256: doc?.sha256 ?? null } : null}
     />

@@ -26,6 +26,8 @@ export default async function PcpDashboard() {
     faculty: count(await db.select({ n }).from(schema.facultyLinks).where(eq(schema.facultyLinks.status, "ACTIVE"))),
     students: count(await db.select({ n }).from(schema.students).where(notInArray(schema.students.status, ["GRADUATED", "WITHDRAWN"]))),
     duplicates: count(await db.select({ n }).from(schema.duplicateFlags).where(eq(schema.duplicateFlags.status, "OPEN"))),
+    pharmacists: count(await db.select({ n }).from(schema.pharmacists)),
+    pharmacistsActive: count(await db.select({ n }).from(schema.pharmacists).where(eq(schema.pharmacists.status, "ACTIVE"))),
   };
 
   const byProvince = await db.select({ k: schema.institutions.province, n }).from(schema.institutions).groupBy(schema.institutions.province);

@@ -1,6 +1,7 @@
 import { eq, isNotNull, sql } from "drizzle-orm";
 import PublicHome from "@/components/PublicHome";
 import { db, schema } from "@/db";
+import { getLang } from "@/lib/i18n-server";
 import { getUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -14,5 +15,5 @@ export default async function Home() {
     db.select({ n }).from(schema.facultyLinks).where(eq(schema.facultyLinks.status, "ACTIVE")),
     db.select({ n }).from(schema.applications).where(isNotNull(schema.applications.certificateNo)),
   ]);
-  return <PublicHome signedIn={!!user} stats={{ institutions: inst.n, programs: programs.n, faculty: faculty.n, certificates: certs.n }} />;
+  return <PublicHome signedIn={!!user} lang={await getLang()} stats={{ institutions: inst.n, programs: programs.n, faculty: faculty.n, certificates: certs.n }} />;
 }
