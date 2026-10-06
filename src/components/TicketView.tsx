@@ -58,7 +58,8 @@ export default function TicketView({ t, me, staff }: { t: TicketRow; me: string;
   const [mode, setMode] = useState<"reply" | "note">("reply");
   const [text, setText] = useState("");
   const [resolution, setResolution] = useState("");
-  const [assignee, setAssignee] = useState<string | undefined>(t.assignedTo ?? undefined);
+  const [picked, setAssignee] = useState<string | undefined>();
+  const assignee = picked ?? t.assignedTo ?? undefined; // follows the ticket until the user picks someone
   const open = t.status === "OPEN" || t.status === "IN_PROGRESS";
   const canWrite = t.status !== "CLOSED";
 

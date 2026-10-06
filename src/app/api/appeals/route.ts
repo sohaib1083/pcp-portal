@@ -28,6 +28,7 @@ export async function POST(req: Request) {
   if (grounds.length < 20) return NextResponse.json({ error: "State your grounds of appeal in at least 20 characters." }, { status: 400 });
   if (!(file instanceof File) || file.size === 0) return NextResponse.json({ error: "Attach the evidence that supports your appeal." }, { status: 400 });
   if (file.size > MAX_BYTES) return NextResponse.json({ error: "The evidence file is larger than 10 MB. Compress it or split it." }, { status: 400 });
+  if (!["application/pdf", "image/png", "image/jpeg"].includes(file.type)) return NextResponse.json({ error: "Attach the evidence as a PDF, PNG or JPEG file." }, { status: 400 });
 
   const app = await db.query.applications.findFirst({ where: and(eq(schema.applications.ref, caseRef), eq(schema.applications.institutionId, inst.id)) });
   if (!app) return NextResponse.json({ error: "Choose one of your institution's cases." }, { status: 404 });

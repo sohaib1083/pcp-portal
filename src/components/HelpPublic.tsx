@@ -70,7 +70,7 @@ export default function HelpPublic({ institutions, signedIn }: { institutions: {
             <Col xs={24} lg={15}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
                 <h2 style={{ margin: 0, fontSize: 18, fontWeight: 650 }}>Write to PCP</h2>
-                <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                   <ScreenGuide
                     title="Contacting PCP"
                     steps={[

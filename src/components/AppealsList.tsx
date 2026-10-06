@@ -24,7 +24,12 @@ function FileAppealModal({ cases, initial, onClose }: { cases: Appealable[]; ini
   const chosen = cases.find((c) => c.ref === caseRef);
 
   const submit = async () => {
-    const v = await form.validateFields();
+    let v;
+    try {
+      v = await form.validateFields();
+    } catch {
+      return; // the form shows what is missing
+    }
     if (!file) return message.error("Attach the evidence that supports your appeal.");
     setBusy(true);
     try {

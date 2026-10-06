@@ -13,6 +13,8 @@ export type Executor = typeof db | Tx;
 
 /** Next reference such as CM-2026-07, APL-2026-0001 or TKT-2026-0001 (highest number + 1, so gaps never collide). */
 export async function nextModuleRef(exec: Executor, table: "council_meetings" | "appeals" | "tickets", prefix: string, pad: number, year = new Date().getFullYear()) {
+  // Inside a transaction, two requests at the same moment wait for each other instead of taking the same number.
+  if (exec !== db) await exec.execute(sql`select pg_advisory_xact_lock(hashtext(${`ref:${table}`}))`);
   const like = `${prefix}-${year}-%`;
   const res = await exec.execute(sql`select coalesce(max(nullif(regexp_replace(ref, '^.*-', ''), '')::int), 0) as n from ${sql.identifier(table)} where ref like ${like}`);
   const n = Number((res.rows[0] as { n: number }).n) + 1;
@@ -75,19 +77,32 @@ export const fmtDay = (d: string | Date | null | undefined) =>
 
 /** The officer's recommendation is the note on the forward-to-council step. */
 export async function recommendationFor(exec: Executor, applicationId: number) {
-  const [ev] = await exec
-    .select({ note: schema.applicationEvents.note })
+  const events = await exec
+    .select({ note: schema.applicationEvents.note, at: schema.applicationEvents.createdAt })
     .from(schema.applicationEvents)
     .where(and(eq(schema.applicationEvents.applicationId, applicationId), eq(schema.applicationEvents.toStatus, "COUNCIL_REVIEW")))
-    .orderBy(desc(schema.applicationEvents.id))
+    .orderBy(desc(schema.applicationEvents.id));
+  const fwd = events.find((e) => /^Recommendation:/i.test(e.note ?? ""));
+  const note = fwd?.note?.replace(/^Recommendation:\s*/i, "").trim();
+  const rec = note && note !== "—" ? note : null;
+  // A case reopened by an upheld appeal: the appeal's review is the newer advice; keep the original next to it.
+  const [appeal] = await exec
+    .select()
+    .from(schema.appeals)
+    .where(and(eq(schema.appeals.applicationId, applicationId), eq(schema.appeals.status, "UPHELD")))
+    .orderBy(desc(schema.appeals.decidedAt))
     .limit(1);
-  const note = ev?.note?.replace(/^Recommendation:\s*/i, "").trim();
-  return note && note !== "—" && !/^Seeded state/i.test(note) ? note : null;
+  if (appeal?.decidedAt && (!fwd || appeal.decidedAt > fwd.at)) {
+    const why = appeal.reviewNote ?? appeal.decisionNote ?? "";
+    return `Reopened after appeal ${appeal.ref} was upheld.${why ? ` Appeal review: ${why}` : ""}${rec ? ` Original recommendation: ${rec}` : ""}`;
+  }
+  return rec;
 }
 
 /** A first draft of the decision, read from the recommendation; the Secretary changes it if needed. */
 export function draftFromRecommendation(rec: string | null) {
-  if (!rec) return null;
+  // A reopened case carries two pieces of advice; the Secretary sets its draft by hand.
+  if (!rec || rec.startsWith("Reopened after appeal")) return null;
   const r = rec.toLowerCase();
   if (/\breject/.test(r)) return "REJECTED";
   if (/\bdefer/.test(r)) return "DEFERRED";
@@ -112,6 +127,17 @@ export async function readyForCouncil(exec: Executor) {
   const cases = (await exec.select().from(schema.applications).where(eq(schema.applications.status, "COUNCIL_REVIEW")).orderBy(asc(schema.applications.updatedAt))).filter((a) => !takenApps.has(a.id));
   const appeals = (await exec.select().from(schema.appeals).where(eq(schema.appeals.status, "ON_AGENDA")).orderBy(asc(schema.appeals.createdAt))).filter((a) => !takenAppeals.has(a.id));
   return { cases, appeals };
+}
+
+/** Serialise agenda changes (build, place, remove) so an item is never added twice. Call inside a transaction. */
+export async function lockAgenda(tx: Executor) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('council:agenda'))`);
+}
+
+/** Keep agenda numbering continuous after an item leaves. */
+export async function renumberAgenda(exec: Executor, meetingId: number) {
+  const rest = await exec.select().from(schema.councilItems).where(eq(schema.councilItems.meetingId, meetingId)).orderBy(asc(schema.councilItems.position), asc(schema.councilItems.id));
+  for (const [i, r] of rest.entries()) if (r.position !== i + 1) await exec.update(schema.councilItems).set({ position: i + 1 }).where(eq(schema.councilItems.id, r.id));
 }
 
 /** The next council meeting that is still planned (today or later). */
@@ -157,7 +183,8 @@ export async function fileMinutes(exec: Executor, meetingId: number, by: { usern
     }
     let outcome = "Not taken up; carried forward to the next meeting";
     if (it.decision) {
-      const note = it.decisionNote?.slice(0, 200) ?? "";
+      // The minutes are one page: shorten the notes when the agenda is long.
+      const note = it.decisionNote?.slice(0, items.length > 6 ? 90 : 200) ?? "";
       outcome =
         it.decision === "DEFERRED"
           ? `Deferred to ${fmtDay(it.deferUntil)}.${note ? ` Reason: ${note}` : ""}`

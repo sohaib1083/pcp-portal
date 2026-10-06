@@ -53,7 +53,7 @@ function DecisionModal({ item, onClose }: { item: AgendaItem; onClose: () => voi
   };
   const noteRequired = ["DEFERRED", "REJECTED", "DISMISSED"].includes(decision);
   const demo: Record<string, string> = {
-    APPROVED: "Approved for the recommended intake; library journals to reach 20 subscriptions within 6 months.",
+    APPROVED: "Intake as recommended, on condition that library journals reach 20 subscriptions within 6 months.",
     DEFERRED: "Deferred until the institution submits the laboratory safety audit and two further appointment letters.",
     REJECTED: "Faculty below the minimum for the requested intake and two laboratories missing at inspection.",
     UPHELD: "The appointment letters filed with the appeal show the faculty were in post before the decision; the case is to be decided afresh.",
@@ -61,7 +61,12 @@ function DecisionModal({ item, onClose }: { item: AgendaItem; onClose: () => voi
   };
 
   const submit = async () => {
-    const v = await form.validateFields();
+    let v;
+    try {
+      v = await form.validateFields();
+    } catch {
+      return; // the form shows what is missing
+    }
     const payload = { decision: v.decision, note: v.note ?? "", deferUntil: v.deferUntil ? dayjs(v.deferUntil).format("YYYY-MM-DD") : null, grounds: v.decision === "REJECTED" ? v.note : null };
     await withOtp(`decision:${ref}`, `${DECISION_TEXT[v.decision]}: ${ref}`, async (code) => {
       const r: ActionResult = await recordItemDecision(item.id, { ...payload, otp: code });

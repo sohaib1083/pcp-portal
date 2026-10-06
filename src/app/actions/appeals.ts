@@ -6,7 +6,7 @@ import { unstable_rethrow } from "next/navigation";
 import { and, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
-import { fmtDay, nextPlannedMeeting, notifyOn, scheduledItems } from "@/lib/council";
+import { fmtDay, lockAgenda, nextPlannedMeeting, notifyOn, renumberAgenda, scheduledItems } from "@/lib/council";
 import { requireInstitution, requirePermission } from "@/lib/session";
 import type { ActionResult } from "./faculty";
 
@@ -64,6 +64,7 @@ export async function placeAppealOnAgenda(ref: string): Promise<ActionResult> {
     if (!["FILED", "UNDER_REVIEW"].includes(a.status)) return fail(`${a.ref} is already ${a.status === "ON_AGENDA" ? "on the agenda" : a.status.toLowerCase()}.`);
     if (!a.reviewNote) return fail("Save a review note first. The council reads it with the appeal.");
     const meeting = await db.transaction(async (tx) => {
+      await lockAgenda(tx);
       const m = await nextPlannedMeeting(tx);
       await tx.update(schema.appeals).set({ status: "ON_AGENDA" }).where(eq(schema.appeals.id, a.id));
       const already = (await scheduledItems(tx)).some((s) => s.appealId === a.id);
@@ -96,13 +97,17 @@ export async function withdrawAppeal(ref: string): Promise<ActionResult> {
     if (!a) return fail("Appeal not found for your institution.");
     if (!["FILED", "UNDER_REVIEW", "ON_AGENDA"].includes(a.status)) return fail(`${a.ref} is ${a.status.toLowerCase()} and cannot be withdrawn.`);
     const items = await db
-      .select({ id: schema.councilItems.id, status: schema.councilMeetings.status })
+      .select({ id: schema.councilItems.id, meetingId: schema.councilItems.meetingId, status: schema.councilMeetings.status })
       .from(schema.councilItems)
       .innerJoin(schema.councilMeetings, eq(schema.councilMeetings.id, schema.councilItems.meetingId))
       .where(eq(schema.councilItems.appealId, a.id));
     if (items.some((i) => i.status === "IN_SESSION")) return fail("The council is hearing this appeal now; it can no longer be withdrawn.");
     await db.transaction(async (tx) => {
-      for (const i of items.filter((x) => x.status === "PLANNED")) await tx.delete(schema.councilItems).where(eq(schema.councilItems.id, i.id));
+      await lockAgenda(tx);
+      for (const i of items.filter((x) => x.status === "PLANNED")) {
+        await tx.delete(schema.councilItems).where(eq(schema.councilItems.id, i.id));
+        await renumberAgenda(tx, i.meetingId);
+      }
       await tx.update(schema.appeals).set({ status: "WITHDRAWN" }).where(eq(schema.appeals.id, a.id));
       await notifyOn(tx, "role:pcp_officer", `Appeal ${a.ref} withdrawn`, `${inst.shortCode} withdrew its appeal.`, `/pcp/appeals/${a.ref}`, "appeal", a.ref);
       await audit(tx, { actor: user.username, action: "appeal.withdrawn", entity: "appeal", entityId: a.ref });

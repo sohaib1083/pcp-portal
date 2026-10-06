@@ -2,11 +2,11 @@
 // Council meetings (guide sections 4 and 14): agenda built from ready cases, a decision per item, minutes.
 import { revalidatePath } from "next/cache";
 import { unstable_rethrow } from "next/navigation";
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
-import { DECISION_LABELS, draftFromRecommendation, fileAppealLetter, fileMinutes, fmtDay, nextModuleRef, notifyOn, readyForCouncil, recommendationFor, reopenCaseForCouncil } from "@/lib/council";
+import { DECISION_LABELS, draftFromRecommendation, fileAppealLetter, fileMinutes, fmtDay, lockAgenda, nextModuleRef, notifyOn, readyForCouncil, recommendationFor, renumberAgenda, reopenCaseForCouncil } from "@/lib/council";
 import { requireOtp } from "@/lib/otp";
 import { can } from "@/lib/roles";
 import { requirePermission, requireUser } from "@/lib/session";
@@ -67,6 +67,7 @@ export async function buildAgenda(meetingRef: string): Promise<ActionResult> {
     const m = await getMeeting(meetingRef);
     if (m.status === "CLOSED") return fail(`${m.ref} is closed. Build the agenda of a planned meeting instead.`);
     const added = await db.transaction(async (tx) => {
+      await lockAgenda(tx);
       const { cases, appeals } = await readyForCouncil(tx);
       const [{ max }] = await tx.select({ max: sql<number>`coalesce(max(${schema.councilItems.position}),0)::int` }).from(schema.councilItems).where(eq(schema.councilItems.meetingId, m.id));
       let pos = max;
@@ -118,10 +119,9 @@ export async function removeAgendaItem(itemId: number): Promise<ActionResult> {
     const m = await db.query.councilMeetings.findFirst({ where: eq(schema.councilMeetings.id, item.meetingId) });
     if (!m || m.status !== "PLANNED") return fail("Items can be removed only before the session starts.");
     await db.transaction(async (tx) => {
+      await lockAgenda(tx);
       await tx.delete(schema.councilItems).where(eq(schema.councilItems.id, itemId));
-      // Keep the numbering continuous.
-      const rest = await tx.select().from(schema.councilItems).where(eq(schema.councilItems.meetingId, m.id)).orderBy(asc(schema.councilItems.position));
-      for (const [i, r] of rest.entries()) if (r.position !== i + 1) await tx.update(schema.councilItems).set({ position: i + 1 }).where(eq(schema.councilItems.id, r.id));
+      await renumberAgenda(tx, m.id);
       await audit(tx, { actor: user.username, action: "council.item.removed", entity: "council_meeting", entityId: m.ref, details: { applicationId: item.applicationId, appealId: item.appealId } });
     });
     refresh(m.ref);
