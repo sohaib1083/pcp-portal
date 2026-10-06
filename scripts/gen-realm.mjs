@@ -30,8 +30,17 @@ const ROLES = [
   ["pcp_inspector", "PCP Inspector: assigned inspections only"],
   ["pcp_secretary", "PCP Secretary: council decisions and certificates"],
 ];
-// Extra local ports for development servers (parallel work on separate databases).
-const DEV_PORTS = [3201, 3202, 3203, 3204, 3205, 3206, 3207, 3208, 3209];
+// Production: PUBLIC_ORIGIN=https://host, client secrets from env, REALM_OUT=path (see deploy/).
+const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN?.replace(/\/+$/, "");
+const PROD = !!PUBLIC_ORIGIN;
+const ORIGIN = PUBLIC_ORIGIN ?? "http://localhost:8088";
+const SECRET = {
+  portal: process.env.PORTAL_CLIENT_SECRET ?? "pcp-portal-demo-secret",
+  adminApi: process.env.ADMIN_API_CLIENT_SECRET ?? "pcp-admin-api-demo-secret",
+  demo: process.env.DEMO_CLIENT_SECRET ?? "pcp-demo-secret",
+};
+// Extra local ports for development servers (parallel work on separate databases); not in production.
+const DEV_PORTS = PROD ? [] : [3201, 3202, 3203, 3204, 3205, 3206, 3207, 3208, 3209];
 const pw = [{ type: "password", value: "Demo@1234", temporary: false }];
 const user = (username, firstName, lastName, role, inst) => ({
   username, enabled: true, firstName, lastName, email: `${username}@demo.pcp.local`, emailVerified: true,
@@ -83,28 +92,28 @@ const realm = {
   clients: [
     {
       clientId: "pcp-portal", name: "PCP Portal", enabled: true, protocol: "openid-connect", publicClient: false,
-      clientAuthenticatorType: "client-secret", secret: "pcp-portal-demo-secret", standardFlowEnabled: true, directAccessGrantsEnabled: false,
-      redirectUris: ["http://localhost:8088/*", ...DEV_PORTS.map((p) => `http://localhost:${p}/*`)], webOrigins: ["http://localhost:8088"], rootUrl: "http://localhost:8088", baseUrl: "/",
-      attributes: { "post.logout.redirect.uris": "http://localhost:8088/*", "pkce.code.challenge.method": "S256" },
+      clientAuthenticatorType: "client-secret", secret: SECRET.portal, standardFlowEnabled: true, directAccessGrantsEnabled: false,
+      redirectUris: [`${ORIGIN}/*`, ...DEV_PORTS.map((p) => `http://localhost:${p}/*`)], webOrigins: [ORIGIN], rootUrl: ORIGIN, baseUrl: "/",
+      attributes: { "post.logout.redirect.uris": `${ORIGIN}/*`, "pkce.code.challenge.method": "S256" },
       protocolMappers: tokenMappers,
     },
     {
       // Demo only: lets the sign-in page switch personas with one click (OAuth password grant).
       // pcp-portal keeps directAccessGrantsEnabled=false; remove this client outside the demo.
       clientId: "pcp-demo", name: "PCP Portal demo persona switcher (demo only)", enabled: true, protocol: "openid-connect",
-      publicClient: false, clientAuthenticatorType: "client-secret", secret: "pcp-demo-secret",
+      publicClient: false, clientAuthenticatorType: "client-secret", secret: SECRET.demo,
       standardFlowEnabled: false, directAccessGrantsEnabled: true,
-      redirectUris: ["http://localhost:8088/*"], webOrigins: ["http://localhost:8088"],
-      attributes: { "post.logout.redirect.uris": "http://localhost:8088/*" },
+      redirectUris: [`${ORIGIN}/*`], webOrigins: [ORIGIN],
+      attributes: { "post.logout.redirect.uris": `${ORIGIN}/*` },
       protocolMappers: tokenMappers,
     },
     {
       clientId: "pcp-admin-api", name: "PCP Portal admin API (service account)", enabled: true, protocol: "openid-connect",
-      publicClient: false, clientAuthenticatorType: "client-secret", secret: "pcp-admin-api-demo-secret",
+      publicClient: false, clientAuthenticatorType: "client-secret", secret: SECRET.adminApi,
       serviceAccountsEnabled: true, standardFlowEnabled: false, directAccessGrantsEnabled: false,
     },
   ],
   users,
 };
-writeFileSync(new URL("../docker/keycloak/realm-pcp.json", import.meta.url), JSON.stringify(realm, null, 2));
+writeFileSync(process.env.REALM_OUT ?? new URL("../docker/keycloak/realm-pcp.json", import.meta.url), JSON.stringify(realm, null, 2));
 console.log(`realm written: ${ROLES.length} roles, ${users.length - 1} users, ${INSTITUTIONS.length} institution groups`);

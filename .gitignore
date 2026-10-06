@@ -58,3 +58,10 @@ e2e/screenshots/
 /e2e/film/out/
 .app.log
 .app.pid
+
+# deployment secrets
+/deploy/.env
+/deploy/realm-pcp.json
+
+# local agent worktrees and tool state
+/.claude/

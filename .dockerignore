@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+storage
+e2e/tour
+e2e/film/out
+e2e/screenshots
+.env*
+.app.*
+.tunnel.*
+.dev.log
+deploy/.env
+deploy/realm-pcp.json
+.claude
