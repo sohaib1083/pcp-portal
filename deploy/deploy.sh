@@ -4,6 +4,8 @@
 #   deploy/deploy.sh update    ship the current git HEAD and rebuild (data is kept)
 #   deploy/deploy.sh reset     restore the clean demo story (data and Keycloak users)
 #   deploy/deploy.sh status    show the link and container state
+#   deploy/deploy.sh backup    take a backup now and list the ones kept (a daily one runs on its own)
+#   deploy/deploy.sh restore-test   restore the newest backup into a scratch database and compare it with the live one
 #   deploy/deploy.sh tunnel    open the Keycloak admin console at http://localhost:8088/auth/admin (SSH tunnel)
 #   deploy/deploy.sh destroy   delete the VM and its IP (stops all charges)
 # Settings: PROJECT (default: gcloud's project), ZONE (asia-south1-a, Mumbai), VM, MACHINE (e2-standard-2), PUBLIC_HOST.
@@ -73,11 +75,13 @@ ENV
     echo "https://$(host)"; curl -s -o /dev/null -w "login page: %{http_code} in %{time_total}s\n" "https://$(host)/login" || true
     remote "cd ~/pcp && $COMPOSE ps --format '{{.Service}}: {{.Status}}'"
     ;;
+  backup) remote "cd ~/pcp && $COMPOSE exec -T backup sh /backup.sh once && $COMPOSE exec -T backup sh /backup.sh list" ;;
+  restore-test) remote "cd ~/pcp && $COMPOSE exec -T backup sh /backup.sh restore-test" ;;
   tunnel) echo "Keycloak admin: http://localhost:8088/auth/admin (user admin, password KC_ADMIN_PASSWORD in deploy/.env)"; $G compute ssh "$VM" --zone "$ZONE" -- -N -L 8088:localhost:8088 ;;
   destroy)
     $G compute instances delete "$VM" --zone "$ZONE" --quiet || true
     $G compute addresses delete pcp-ip --region "$REGION" --quiet || true
     $G compute firewall-rules delete pcp-allow-web --quiet || true
     ;;
-  *) echo "usage: deploy/deploy.sh first|update|reset|status|tunnel|destroy"; exit 1 ;;
+  *) echo "usage: deploy/deploy.sh first|update|reset|status|backup|restore-test|tunnel|destroy"; exit 1 ;;
 esac

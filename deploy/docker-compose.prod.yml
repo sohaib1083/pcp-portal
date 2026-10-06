@@ -68,6 +68,24 @@ services:
       postgres:
         condition: service_healthy
 
+  backup:
+    # Daily backup of both databases and the document store, kept for 14 days (deploy/backup.sh).
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGUSER: pcp
+      PGPASSWORD: ${PG_PASSWORD}
+      KEEP_DAYS: "14"
+    entrypoint: ["sh", "/backup.sh", "loop"]
+    volumes:
+      - ./backup.sh:/backup.sh:ro
+      - backups:/backups
+      - appstorage:/storage:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
@@ -102,5 +120,6 @@ services:
 volumes:
   pgdata:
   appstorage:
+  backups:
   caddy_data:
   caddy_config:
