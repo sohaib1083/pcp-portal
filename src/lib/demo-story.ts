@@ -84,7 +84,7 @@ export const STORY: Step[] = [
     path: "/institution/faculty",
     do: [
       "Click **Add faculty member** → **Try: active elsewhere** → **Save and run checks**. It is blocked, and the other institution is not named.",
-      "Click **Try: near-duplicate** → **Save and run checks**. It is saved but flagged for PCP (Mohammad vs Muhammad Ali Khan).",
+      "Click **Try: near-duplicate** → **Save and run checks**. It asks \"Did you mean PCP-FAC-000001?\" (Mohammad vs Muhammad Ali Khan). Click **No, a different person**: it is saved but flagged for PCP.",
     ],
     say: "CNIC is the hard key (NADRA Verisys in production). Names are compared after normalising spellings like Muhammad/Mohammad and Mehmood/Mahmood, so a teacher can't be counted at two colleges.",
   },

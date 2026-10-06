@@ -97,6 +97,12 @@ try {
   await page.getByLabel("Father's name").fill("Abdul Ghafoor Khan");
   await page.locator(".ant-drawer").getByRole("button", { name: "Save and run checks" }).click();
   log("near-duplicate →", (await page.locator(".ant-drawer .ant-alert-warning").last().innerText({ timeout: T })).slice(0, 90));
+  // "Did you mean PCP-FAC-000001?": confirm it is a different person, so the record is created and flagged for PCP.
+  const different = page.locator(".ant-drawer").getByRole("button", { name: "No, a different person" });
+  if (await different.count()) {
+    await different.click();
+    log("different person →", (await page.locator(".ant-drawer .ant-alert-warning", { hasText: "Saved as" }).innerText({ timeout: T })).slice(0, 90));
+  }
   await page.keyboard.press("Escape");
 
   // 3. Same POC pays the fee (no separate finance user any more)
