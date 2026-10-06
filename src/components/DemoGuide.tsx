@@ -114,7 +114,8 @@ export default function DemoGuide() {
   const needSwitch = step.as !== "public" && ctx?.user?.username !== step.as;
   const here = !needSwitch && pathname === target;
 
-  if (pathname?.startsWith("/certificate/")) return null;
+  // Not on printed certificates, nor on /coverage, which has its own Try it buttons.
+  if (pathname?.startsWith("/certificate/") || pathname === "/coverage") return null;
 
   if (!open)
     return (
