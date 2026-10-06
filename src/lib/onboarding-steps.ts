@@ -72,7 +72,9 @@ export function onboardingSteps(o: {
   if (o.programmes.some((x) => !names.has(x.campus))) campus.push("A programme points to a campus that no longer exists");
 
   const latest = latestDocs(o.docs);
-  const documents = o.requiredDocs.filter((r) => !latest.has(r) || latest.get(r)!.verificationStatus === "REJECTED");
+  const documents = o.requiredDocs
+    .filter((r) => !latest.has(r) || latest.get(r)!.verificationStatus === "REJECTED")
+    .map((r) => (latest.has(r) ? `${r} (PCP did not accept it)` : r));
 
   const progs = o.programmes.length;
   return [

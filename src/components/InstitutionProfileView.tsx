@@ -78,9 +78,7 @@ export default function InstitutionProfileView({ inst, campuses, programs, canEd
   const router = useRouter();
   const [pending, start] = useTransition();
   const [contactOpen, setContactOpen] = useState(false);
-  const [campusEdit, setCampusEdit] = useState<{ id: number | null } | null>(null);
-  const [contactForm] = Form.useForm();
-  const [campusForm] = Form.useForm();
+  const [campusEdit, setCampusEdit] = useState<{ id: number | null; init: Record<string, unknown> } | null>(null);
 
   const run = (fn: () => Promise<ActionResult>, after?: () => void) =>
     start(async () => {
@@ -92,11 +90,8 @@ export default function InstitutionProfileView({ inst, campuses, programs, canEd
       }
     });
 
-  const openCampus = (c: Campus | null) => {
-    campusForm.resetFields();
-    campusForm.setFieldsValue(c ? { name: c.name, city: c.city, province: c.province, address: c.address ?? undefined, isMain: c.isMain } : { province: inst.province, isMain: false });
-    setCampusEdit({ id: c?.id ?? null });
-  };
+  const openCampus = (c: Campus | null) =>
+    setCampusEdit({ id: c?.id ?? null, init: c ? { name: c.name, city: c.city, province: c.province, address: c.address ?? undefined, isMain: c.isMain } : { province: inst.province, isMain: false } });
 
   return (
     <>
@@ -108,10 +103,7 @@ export default function InstitutionProfileView({ inst, campuses, programs, canEd
           canEdit ? (
             <Button
               icon={<EditOutlined />}
-              onClick={() => {
-                contactForm.setFieldsValue({ email: inst.email, phone: inst.phone, address: inst.address, website: inst.website });
-                setContactOpen(true);
-              }}
+              onClick={() => setContactOpen(true)}
             >
               Edit contact details
             </Button>
@@ -218,8 +210,13 @@ export default function InstitutionProfileView({ inst, campuses, programs, canEd
         )}
       </Card>
 
-      <Drawer title="Edit contact details" open={contactOpen} onClose={() => setContactOpen(false)} size="large">
-        <Form form={contactForm} layout="vertical" requiredMark="optional" onFinish={(v) => run(() => updateInstitutionContact(v), () => setContactOpen(false))}>
+      <Drawer title="Edit contact details" open={contactOpen} onClose={() => setContactOpen(false)} size="large" destroyOnHidden>
+        <Form
+          layout="vertical"
+          requiredMark="optional"
+          initialValues={{ email: inst.email, phone: inst.phone, address: inst.address, website: inst.website }}
+          onFinish={(v) => run(() => updateInstitutionContact(v), () => setContactOpen(false))}
+        >
           <Form.Item name="email" label="Official email" rules={[{ required: true, type: "email", message: "Enter a valid email address" }]}>
             <Input />
           </Form.Item>
@@ -245,8 +242,41 @@ export default function InstitutionProfileView({ inst, campuses, programs, canEd
         </Form>
       </Drawer>
 
-      <Modal open={!!campusEdit} title={campusEdit?.id ? "Edit campus" : "Add a campus"} okText="Save campus" confirmLoading={pending} onCancel={() => setCampusEdit(null)} onOk={() => campusForm.submit()} destroyOnHidden>
-        <Form form={campusForm} layout="vertical" requiredMark="optional" onFinish={(v) => run(() => saveInstitutionCampus(campusEdit?.id ?? null, v), () => setCampusEdit(null))}>
+      {campusEdit ? (
+        <CampusModal
+          edit={campusEdit}
+          inst={inst}
+          provinces={provinces}
+          pending={pending}
+          onCancel={() => setCampusEdit(null)}
+          onSave={(v) => run(() => saveInstitutionCampus(campusEdit.id, v), () => setCampusEdit(null))}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/** Mounted only while open, so each opening starts from the campus being edited. */
+function CampusModal({
+  edit,
+  inst,
+  provinces,
+  pending,
+  onCancel,
+  onSave,
+}: {
+  edit: { id: number | null; init: Record<string, unknown> };
+  inst: Inst;
+  provinces: string[];
+  pending: boolean;
+  onCancel: () => void;
+  onSave: (v: Record<string, unknown>) => void;
+}) {
+  const [campusForm] = Form.useForm();
+  return (
+    <>
+      <Modal open title={edit.id ? "Edit campus" : "Add a campus"} okText="Save campus" confirmLoading={pending} onCancel={onCancel} onOk={() => campusForm.submit()}>
+        <Form form={campusForm} layout="vertical" requiredMark="optional" initialValues={edit.init} onFinish={onSave}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8 }}>
             <span className="muted" style={{ fontSize: 12.5 }}>A campus is part of this institution, not a separate account.</span>
             <FillDemo onClick={() => campusForm.setFieldsValue({ name: `City campus, ${inst.city}`, city: inst.city, province: inst.province, address: "Block C, University Road", isMain: false })} />

@@ -75,7 +75,7 @@ export default function AdminView({ me, institutions, staff, kcError }: { me: st
           </Space>
         }
       />
-      {kcError ? <Alert type="error" showIcon style={{ marginBottom: 16 }} message="Keycloak admin API unreachable" description={kcError} /> : null}
+      {kcError ? <Alert type="error" showIcon style={{ marginBottom: 16 }} title="Keycloak admin API unreachable" description={kcError} /> : null}
       <Tabs
         items={[
           {
@@ -182,7 +182,7 @@ export default function AdminView({ me, institutions, staff, kcError }: { me: st
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message="What this does"
+          title="What this does"
           description={
             <ol style={{ margin: 0, paddingLeft: 18 }}>
               <li>Generates the next PCP institution ID (PCP-UNI-…)</li>
@@ -226,6 +226,7 @@ export default function AdminView({ me, institutions, staff, kcError }: { me: st
             <Select
               optionLabelProp="title"
               listHeight={420}
+              virtual={false}
               options={
                 userOpen?.role === "inst_poc"
                   ? [{ label: "Institution role", options: [roleOption("inst_poc")] }]

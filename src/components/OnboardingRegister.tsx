@@ -172,7 +172,7 @@ export function RegisterForm() {
 
 export type VerifyInfo = {
   ref: string;
-  username: string;
+  username: string | null; // shown only to the browser that registered
   name: string;
   emailMasked: string;
   mobileMasked: string;
@@ -215,7 +215,11 @@ export function VerifyAccount({ info }: { info: VerifyInfo }) {
           <h2 style={{ margin: "0 0 4px", fontSize: 20, letterSpacing: "-0.01em" }}>{done ? "Your account is verified" : "Verify your email and mobile"}</h2>
           <div className="muted" style={{ fontSize: 13.5, marginBottom: 14 }}>
             {done ? (
-              <>Sign in as <b className="mono">{info.username}</b> with the password you chose to continue with the checklist.</>
+              info.username ? (
+                <>Sign in as <b className="mono">{info.username}</b> with the password you chose to continue with the checklist.</>
+              ) : (
+                <>Sign in with the username and password you chose to continue with the checklist.</>
+              )
             ) : (
               <>Enter the two codes we sent. They are valid for 30 minutes.</>
             )}
@@ -269,7 +273,7 @@ export function VerifyAccount({ info }: { info: VerifyInfo }) {
             )}
             {done ? (
               <form action={loginAction}>
-                <input type="hidden" name="username" value={info.username} />
+                {info.username ? <input type="hidden" name="username" value={info.username} /> : null}
                 <input type="hidden" name="next" value="/onboarding" />
                 <Button type="primary" size="large" htmlType="submit" icon={<LoginOutlined />}>
                   Sign in to continue

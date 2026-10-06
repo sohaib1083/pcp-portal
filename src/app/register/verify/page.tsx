@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { eq } from "drizzle-orm";
 import { UnknownRegistration, VerifyAccount } from "@/components/OnboardingRegister";
 import { PublicFrame } from "@/components/PublicHome";
@@ -15,13 +16,15 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
   const { ref } = await searchParams;
   const user = await getUser();
   const req = ref ? await db.query.onboardingRequests.findFirst({ where: eq(schema.onboardingRequests.ref, ref) }) : null;
+  // Only the browser that registered (or the signed-in applicant) sees the username.
+  const own = !!req && ((await cookies()).get("pcp_reg")?.value === req.ref || user?.username === req.applicantUsername);
   return (
     <PublicFrame signedIn={!!user} title="Verify your account" sub="Two codes confirm that the official email and the mobile number belong to you.">
       {req ? (
         <VerifyAccount
           info={{
             ref: req.ref,
-            username: req.applicantUsername,
+            username: own ? req.applicantUsername : null,
             name: req.applicantName,
             emailMasked: maskEmail(req.email),
             mobileMasked: maskMobile(req.mobile),

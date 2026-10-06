@@ -1,5 +1,6 @@
 "use server";
 // Institution onboarding (guide section 3): self-registration, the applicant's checklist and PCP's review.
+import { cookies } from "next/headers";
 import { and, eq, ne, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
@@ -124,6 +125,8 @@ export async function registerInstitution(raw: unknown): Promise<ActionResult & 
         await audit(tx, { actor: v.username, action: "onboarding.registered", entity: "onboarding", entityId: ref, details: { email: v.email, mobile: v.mobile } });
         return ref;
       });
+      // Marks this browser as the one that registered, so the public verify page may show the username.
+      (await cookies()).set("pcp_reg", ref, { httpOnly: true, sameSite: "lax", path: "/register", maxAge: 24 * 60 * 60 });
       return { ok: true, level: "success" as const, message: `Account created. We sent a code to ${v.email} and another to ${v.mobile}.`, ref };
     } catch (e) {
       await deleteUserById(kcId).catch(() => undefined);
@@ -158,8 +161,9 @@ export async function verifyAccount(ref: string, emailCode: string, mobileCode: 
       if (mobileOk && !req.mobileVerifiedAt) await audit(tx, { actor: req.applicantUsername, action: "onboarding.mobile.verified", entity: "onboarding", entityId: ref });
     });
     if (emailOk && mobileOk) return { ok: true, level: "success" as const, message: "Email and mobile verified. Sign in to continue your registration.", emailOk, mobileOk };
-    const wrong = [!emailOk ? "email code" : null, !mobileOk ? "mobile code" : null].filter(Boolean).join(" and the ");
-    return { ok: false, level: "error" as const, message: `The ${wrong} is wrong. Check the latest message and try again (${MAX_ATTEMPTS - req.codeAttempts - 1} tries left).`, emailOk, mobileOk };
+    const wrong = !emailOk && !mobileOk ? "Both codes are wrong" : !emailOk ? "The email code is wrong" : "The mobile code is wrong";
+    const left = MAX_ATTEMPTS - req.codeAttempts - 1;
+    return { ok: false, level: "error" as const, message: `${wrong}${emailOk !== mobileOk ? "; the other one is now verified" : ""}. Check the latest message and try again (${left} ${left === 1 ? "try" : "tries"} left).`, emailOk, mobileOk };
   });
 }
 

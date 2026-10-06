@@ -282,7 +282,9 @@ export default function OnboardingChecklist({
                   {!editable
                     ? req.status === "SUBMITTED"
                       ? "Submitted. PCP will reply by email."
-                      : "This request is closed."
+                      : req.status === "APPROVED"
+                        ? `Approved by PCP${req.reviewedAt ? ` on ${fmtDate(req.reviewedAt)}` : ""}. Nothing more to submit here.`
+                        : "Rejected by PCP. This request is closed."
                     : doneCount === steps.length
                       ? "Everything is ready. PCP's registration officer checks it next."
                       : `Blocked until every step is complete: ${steps
@@ -462,7 +464,7 @@ function ProfileStep({ req, editable, provinces, universities, run, pending, onD
           </Form.Item>
         </Col>
         <Col xs={24} md={12}>
-          <Form.Item name="website" label="Website (optional)">
+          <Form.Item name="website" label="Website">
             <Input placeholder="www.example.edu.pk" />
           </Form.Item>
         </Col>
@@ -613,7 +615,7 @@ function CampusStep({ req, editable, provinces, run, pending }: { req: Req; edit
         confirmLoading={pending}
         onCancel={() => setCampusEdit(null)}
         onOk={() => cForm.submit()}
-        destroyOnHidden
+        forceRender
       >
         <Form form={cForm} layout="vertical" requiredMark="optional" onFinish={(v) => run(() => saveCampus(campusEdit?.index ?? null, v), () => setCampusEdit(null))}>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
@@ -660,7 +662,7 @@ function CampusStep({ req, editable, provinces, run, pending }: { req: Req; edit
         </Form>
       </Modal>
 
-      <Modal open={!!progEdit} title={progEdit?.index === null ? "Add programme" : "Edit programme"} okText="Save programme" confirmLoading={pending} onCancel={() => setProgEdit(null)} onOk={() => pForm.submit()} destroyOnHidden>
+      <Modal open={!!progEdit} title={progEdit?.index === null ? "Add programme" : "Edit programme"} okText="Save programme" confirmLoading={pending} onCancel={() => setProgEdit(null)} onOk={() => pForm.submit()} forceRender>
         <Form form={pForm} layout="vertical" requiredMark="optional" onFinish={(v) => run(() => saveProgramme(progEdit?.index ?? null, v), () => setProgEdit(null))}>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
             <FillDemo onClick={() => pForm.setFieldsValue({ type: "PHARMD", campus: main?.name, plannedIntake: 50, startYear: new Date().getFullYear() + 1 })} />
