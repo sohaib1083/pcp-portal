@@ -1,9 +1,9 @@
 "use client";
 // Small UI pieces shared by the faculty and student registry screens.
 import { ArrowRightOutlined } from "@ant-design/icons";
-import type { ComponentProps } from "react";
+import { useCallback, useState, type ComponentProps } from "react";
 import { DETAIL_FIELD_LABELS, FIGURE_KEYS, FIGURE_LABELS, type FigureKey } from "@/lib/registry-shared";
-import { StatusDot, programLabel } from "./common";
+import { StatusDot, fmtDate, programLabel } from "./common";
 
 type Tone = ComponentProps<typeof StatusDot>["tone"];
 
@@ -49,6 +49,21 @@ const LABEL: Record<string, string> = {
 
 const nice = (v: string) => v.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 
+/**
+ * Busy flag for a server action. Unlike useTransition, it clears as soon as the action answers,
+ * so the button is usable again the moment its result is on screen.
+ */
+export function useBusy(): [boolean, (fn: () => Promise<unknown>) => void] {
+  const [busy, setBusy] = useState(false);
+  const run = useCallback((fn: () => Promise<unknown>) => {
+    setBusy(true);
+    fn()
+      .catch((e) => console.error(e))
+      .finally(() => setBusy(false));
+  }, []);
+  return [busy, run];
+}
+
 export function RegStatus({ value, label, title }: { value: string; label?: string; title?: string }) {
   return (
     <StatusDot tone={TONE[value] ?? "neutral"} title={title}>
@@ -60,6 +75,7 @@ export function RegStatus({ value, label, title }: { value: string; label?: stri
 const show = (field: string, v: string | number | null) => {
   if (v === null || v === "") return <span className="faint">none</span>;
   if (field === "programType") return programLabel(String(v));
+  if (field === "endDate") return fmtDate(String(v));
   if (field === "status") return nice(String(v));
   return String(v);
 };

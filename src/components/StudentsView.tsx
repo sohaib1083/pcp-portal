@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import { Alert, App, Button, Card, Col, Drawer, Form, Input, InputNumber, Popconfirm, Radio, Row, Select, Space, Steps, Switch, Table, Tag, Upload } from "antd";
@@ -20,7 +20,7 @@ import { addStudent, checkDegree, checkStudentUpload, importStudentUpload, updat
 import { PROGRAMME_YEARS, UPLOAD_COLUMNS, UPLOAD_TEMPLATE_ROWS, toCsv, type UploadRow } from "@/lib/registry-shared";
 import { KV, PageTitle, Person, StatCard, fmtDate, programLabel } from "./common";
 import { DEMO } from "./demo-helpers";
-import { RegStatus, SectionLabel, downloadText } from "./registry-ui";
+import { RegStatus, SectionLabel, downloadText, useBusy } from "./registry-ui";
 
 type Row = {
   id: number;
@@ -91,7 +91,7 @@ export default function StudentsView(props: {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [studentId, setStudentId] = useState<number | null>(null);
   const [result, setResult] = useState<{ ok: boolean; message: string; level?: string } | null>(null);
-  const [pending, start] = useTransition();
+  const [pending, start] = useBusy();
   const [form] = Form.useForm();
   const filtered = useMemo(() => {
     const s = q.toLowerCase().trim();
@@ -164,7 +164,7 @@ export default function StudentsView(props: {
           })}
         </Row>
       </Card>
-      <Card extra={<Input.Search placeholder="Search name or PCP ID" allowClear onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />} title={`${filtered.length} students`} styles={{ body: { padding: 0 } }}>
+      <Card extra={<Input.Search placeholder="Search name or PCP ID" allowClear onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />} title={`${filtered.length} student${filtered.length === 1 ? "" : "s"}`} styles={{ body: { padding: 0 } }}>
         <Table
           rowKey="id"
           dataSource={filtered}
@@ -280,7 +280,7 @@ export default function StudentsView(props: {
 
 function StudentDrawer({ student: s, locked, canEdit, onClose, onDone }: { student: Row | null; locked: Locked[]; canEdit: boolean; onClose: () => void; onDone: () => void }) {
   const { message } = App.useApp();
-  const [busy, start] = useTransition();
+  const [busy, start] = useBusy();
   const [checking, setChecking] = useState(false);
   const [resultYear, setResultYear] = useState(THIS_YEAR);
   const [res, setRes] = useState<"PASS" | "FAIL">("PASS");
@@ -311,7 +311,7 @@ function StudentDrawer({ student: s, locked, canEdit, onClose, onDone }: { stude
     }
   };
 
-  const stage = !s ? 0 : s.eligible ? 5 : s.degreeVerified ? 4 : s.status === "GRADUATED" ? 3 : s.result ? 2 : 1;
+  const stage = !s ? 0 : s.eligible ? 4 : s.status === "GRADUATED" ? 3 : 1;
 
   return (
     <Drawer
@@ -329,7 +329,7 @@ function StudentDrawer({ student: s, locked, canEdit, onClose, onDone }: { stude
           <Steps
             size="small"
             current={stage}
-            status={s.status === "WITHDRAWN" ? "error" : undefined}
+            status={s.status === "WITHDRAWN" ? "error" : s.eligible ? "finish" : "process"}
             style={{ marginBottom: 18 }}
             items={[{ title: "Enrolled, ID issued" }, { title: "Results" }, { title: "Graduated" }, { title: "Degree check" }, { title: "Eligible" }].map((i, k) => ({ ...i, key: k }))}
           />
@@ -537,19 +537,6 @@ function BulkUpload({ open, onClose, onDone, approved }: { open: boolean; onClos
         </Col>
       </Row>
 
-      <SectionLabel>Columns</SectionLabel>
-      <Table
-        size="small"
-        rowKey={(r) => r[0]}
-        pagination={false}
-        dataSource={COLUMN_GUIDE}
-        columns={[
-          { title: "Column", render: (_, r) => <span className="mono">{r[0]}</span> },
-          { title: "Required", render: (_, r) => r[1] },
-          { title: "Format", render: (_, r) => <span style={{ fontSize: 12.5 }}>{r[2]}</span> },
-        ]}
-      />
-
       {problem ? <Alert style={{ marginTop: 16 }} type="error" showIcon title={problem} /> : null}
       {done ? (
         <Alert
@@ -621,6 +608,19 @@ function BulkUpload({ open, onClose, onDone, approved }: { open: boolean; onClos
           <Button onClick={reset}>Upload another file</Button> <span className="faint" style={{ fontSize: 12.5, marginLeft: 8 }}>Imported on {fmtDate(new Date().toISOString())}</span>
         </div>
       ) : null}
+
+      <SectionLabel>Columns in the template</SectionLabel>
+      <Table
+        size="small"
+        rowKey={(r) => r[0]}
+        pagination={false}
+        dataSource={COLUMN_GUIDE}
+        columns={[
+          { title: "Column", render: (_, r) => <span className="mono">{r[0]}</span> },
+          { title: "Required", render: (_, r) => r[1] },
+          { title: "Format", render: (_, r) => <span style={{ fontSize: 12.5 }}>{r[2]}</span> },
+        ]}
+      />
     </Drawer>
   );
 }

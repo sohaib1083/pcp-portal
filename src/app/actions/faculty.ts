@@ -509,7 +509,7 @@ export async function decideFacultyChange(id: number, approve: boolean, note: st
       else if (fcr.kind === "NEW_LINK" && fcr.linkId) await tx.update(schema.facultyLinks).set({ status: "DECLINED", endDate: today() }).where(eq(schema.facultyLinks.id, fcr.linkId));
       await tx
         .update(schema.facultyChangeRequests)
-        .set({ status: approve ? "APPROVED" : "REJECTED", decidedBy: user.username, decidedAt: new Date(), decisionNote: note?.trim() || (approve ? "Approved" : null) })
+        .set({ status: approve ? "APPROVED" : "REJECTED", decidedBy: user.username, decidedAt: new Date(), decisionNote: note?.trim() || null })
         .where(eq(schema.facultyChangeRequests.id, fcr.id));
       await notify(
         tx,

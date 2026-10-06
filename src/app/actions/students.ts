@@ -460,7 +460,7 @@ export async function decideCorrection(id: number, approve: boolean, note: strin
     await db.transaction(async (tx) => {
       await tx
         .update(schema.correctionRequests)
-        .set({ status: approve ? "APPROVED" : "REJECTED", decidedBy: user.username, decidedAt: new Date(), decisionNote: note?.trim() || (approve ? "Approved" : null) })
+        .set({ status: approve ? "APPROVED" : "REJECTED", decidedBy: user.username, decidedAt: new Date(), decisionNote: note?.trim() || null })
         .where(eq(schema.correctionRequests.id, c.id));
       await notify(
         tx,

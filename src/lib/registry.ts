@@ -131,3 +131,28 @@ export async function nextStudentIds(exec: Executor, shortCode: string, year: nu
   const start = Math.max(Number((res.rows[0] as { n: number }).n), base);
   return Array.from({ length: count }, (_, i) => `${prefix}${String(start + i + 1).padStart(8, "0")}`);
 }
+
+/** "Action required" lines for the institution dashboard: the annual student update and the annual faculty update. */
+export async function registryActions(exec: Executor, institutionId: number) {
+  const year = thisYear();
+  const programs = await exec
+    .select({ type: schema.programs.type })
+    .from(schema.programs)
+    .where(and(eq(schema.programs.institutionId, institutionId), eq(schema.programs.nocStatus, "APPROVED")));
+  const filed = await exec
+    .select({ programType: schema.annualReturns.programType, status: schema.annualReturns.status })
+    .from(schema.annualReturns)
+    .where(and(eq(schema.annualReturns.institutionId, institutionId), eq(schema.annualReturns.year, year)));
+  const label = (t: string) => (t === "PHARMD" ? "PharmD" : "Pharmacy Technician");
+  const out: { text: string; level: "error" | "warning" | "info"; link?: string }[] = [];
+  for (const f of filed.filter((x) => x.status === "RETURNED"))
+    out.push({ text: `PCP returned the ${year} annual student update for ${label(f.programType)}: correct it and submit again`, level: "error", link: "/institution/annual-returns" });
+  const due = programs.filter((p) => !filed.some((f) => f.programType === p.type && f.status !== "DRAFT"));
+  if (due.length)
+    out.push({ text: `Annual student update ${year} (enrolment, progression, results) due 31 Oct ${year}: ${due.map((p) => label(p.type)).join(", ")}`, level: "warning", link: "/institution/annual-returns" });
+  const confirmed = await exec.query.facultyAnnualConfirmations.findFirst({
+    where: and(eq(schema.facultyAnnualConfirmations.institutionId, institutionId), eq(schema.facultyAnnualConfirmations.year, year)),
+  });
+  if (!confirmed) out.push({ text: `Annual faculty update due 31 Dec ${year}`, level: "info", link: "/institution/faculty" });
+  return out;
+}

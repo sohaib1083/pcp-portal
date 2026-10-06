@@ -44,7 +44,7 @@ export default function StudentPortalView({ name, record: r }: { name: string; r
       </>
     );
   const len = PROGRAMME_YEARS[r.programType] ?? 5;
-  const stage = r.eligible ? 5 : r.degreeVerified ? 4 : r.status === "GRADUATED" ? 3 : r.result ? 2 : 1;
+  const stage = r.eligible ? 4 : r.status === "GRADUATED" ? 3 : 1;
   const next = r.eligible
     ? "You are eligible to apply for registration as a pharmacist. Apply to your provincial pharmacy council and quote your PCP student ID."
     : r.status === "GRADUATED"
@@ -108,7 +108,7 @@ export default function StudentPortalView({ name, record: r }: { name: string; r
       <Card title="Your progress" style={{ marginBottom: 18 }}>
         <Steps
           current={stage}
-          status={r.status === "WITHDRAWN" ? "error" : stage === 5 ? "finish" : "process"}
+          status={r.status === "WITHDRAWN" ? "error" : r.eligible ? "finish" : "process"}
           items={[
             { title: "Enrolled, ID issued", content: String(r.enrollmentYear) },
             { title: "Results", content: r.result ? `${r.result === "PASS" ? "Pass" : "Fail"} ${r.resultYear}` : "Each year" },

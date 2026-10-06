@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, App, Button, Card, Col, Drawer, Empty, Input, InputNumber, Row, Select, Space, Table, Tooltip, Upload } from "antd";
 import { AuditOutlined, ClockCircleOutlined, FilePdfOutlined, FileSearchOutlined, InfoCircleOutlined, LockOutlined, PaperClipOutlined, ReloadOutlined, SendOutlined, UploadOutlined } from "@ant-design/icons";
@@ -8,7 +8,7 @@ import { requestCorrection, saveAnnualReturn } from "@/app/actions/students";
 import { FIGURE_HELP, FIGURE_KEYS, FIGURE_LABELS, applyCorrections, emptyFigures, figureProblems, type FigureChange, type FigureKey } from "@/lib/registry-shared";
 import { PageTitle, StatCard, fmtDate, programLabel } from "./common";
 import { SamplePdfButton } from "./demo-helpers";
-import { FiguresTable, RegStatus, SectionLabel, uploadEvidence } from "./registry-ui";
+import { FiguresTable, RegStatus, SectionLabel, uploadEvidence, useBusy } from "./registry-ui";
 
 type Doc = { id: number; fileName: string; version: number } | null;
 export type ReturnRow = {
@@ -312,10 +312,12 @@ export default function AnnualReturnsView({
               render: (_, r) => {
                 const cs = corrections.filter((c) => c.annualReturnId === r.id);
                 if (!cs.length) return <span className="faint">—</span>;
+                const approved = cs.filter((c) => c.status === "APPROVED").length;
                 return (
                   <span style={{ fontSize: 12.5 }}>
-                    {cs.filter((c) => c.status === "APPROVED").length} approved
+                    {approved ? <div>{approved} approved</div> : null}
                     {cs.some((c) => c.status === "PENDING") ? <div style={{ color: "#a15c00" }}>1 with PCP</div> : null}
+                    {!approved && !cs.some((c) => c.status === "PENDING") ? <span className="faint">{cs.length} rejected</span> : null}
                   </span>
                 );
               },
@@ -337,7 +339,7 @@ function FilingForm({ refNo, programme, year, existing, records, onDone }: { ref
   const [figures, setFigures] = useState<AnnualFigures>(existing?.figures ?? fromRecords);
   const [note, setNote] = useState(existing?.note ?? "");
   const [evidence, setEvidence] = useState<Doc>(existing?.evidence ?? null);
-  const [busy, start] = useTransition();
+  const [busy, start] = useBusy();
   const [outcome, setOutcome] = useState<{ ok: boolean; message: string } | null>(null);
   const problems = useMemo(() => figureProblems(figures), [figures]);
 
@@ -395,7 +397,7 @@ function CorrectionDrawer({ open, onClose, r, current, onDone }: { open: boolean
   const [figures, setFigures] = useState<AnnualFigures>(current);
   const [reason, setReason] = useState("");
   const [evidence, setEvidence] = useState<Doc>(null);
-  const [busy, start] = useTransition();
+  const [busy, start] = useBusy();
   const [outcome, setOutcome] = useState<{ ok: boolean; message: string } | null>(null);
   const changes = FIGURE_KEYS.filter((k) => figures[k] !== current[k]);
   const problems = figureProblems(figures);

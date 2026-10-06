@@ -1,5 +1,5 @@
 "use client";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, App, Badge, Button, Card, Col, Empty, Input, Modal, Row, Table, Tabs, Tag } from "antd";
 import { CheckOutlined, CloseOutlined, MergeCellsOutlined, SafetyCertificateOutlined, SplitCellsOutlined } from "@ant-design/icons";
@@ -8,7 +8,7 @@ import { resolveDuplicate, verifyFaculty } from "@/app/actions/pcp";
 import { CHANGE_KIND_LABELS } from "@/lib/registry-shared";
 import { Avatar, PageTitle, Pill, fmtDate, programLabel, timeAgo } from "./common";
 import { useOtp } from "./OtpConfirm";
-import { ChangeLines, RegStatus } from "./registry-ui";
+import { ChangeLines, RegStatus, useBusy } from "./registry-ui";
 
 type Appointment = { inst: string; code: string; programType: string; status: string; startDate: string; endDate: string | null };
 type Person = {
@@ -139,7 +139,7 @@ export default function VerificationView({
 }) {
   const { message } = App.useApp();
   const router = useRouter();
-  const [busy, start] = useTransition();
+  const [busy, start] = useBusy();
   const { withOtp, otpModal } = useOtp();
   const [active, setActive] = useState(tab && ["duplicates", "links", "changes", "decided"].includes(tab) ? tab : "duplicates");
   const [decide, setDecide] = useState<{ r: Request; approve: boolean } | null>(null);

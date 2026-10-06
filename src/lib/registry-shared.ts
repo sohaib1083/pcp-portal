@@ -51,6 +51,7 @@ export const DETAIL_FIELD_LABELS: Record<string, string> = {
   designation: "Designation",
   programType: "Programme",
   endDate: "End date",
+  status: "Appointment",
 };
 
 export const QUALIFICATIONS = ["PhD", "MPhil", "PharmD", "M.Pharm"];

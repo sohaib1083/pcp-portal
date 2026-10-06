@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, App, Button, Card, Col, DatePicker, Drawer, Empty, Form, Input, Modal, Row, Segmented, Select, Table, Typography } from "antd";
 import {
@@ -31,7 +31,7 @@ import {
 import { CHANGE_KIND_LABELS, DESIGNATIONS, QUALIFICATIONS, SPECIALIZATIONS } from "@/lib/registry-shared";
 import { Avatar, KV, PageTitle, Person, Pill, StatCard, fmtDate, programLabel } from "./common";
 import { DEMO } from "./demo-helpers";
-import { ChangeLines, RegStatus, SectionLabel } from "./registry-ui";
+import { ChangeLines, RegStatus, SectionLabel, useBusy } from "./registry-ui";
 
 type Row = {
   linkId: number;
@@ -111,7 +111,7 @@ export default function FacultyView({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [result, setResult] = useState<AddFacultyResult | null>(null);
-  const [pending, start] = useTransition();
+  const [pending, start] = useBusy();
   const [form] = Form.useForm();
   const [view, setView] = useState<"current" | "ended" | "all">("current");
   const [recordId, setRecordId] = useState<number | null>(null);
@@ -340,7 +340,7 @@ export default function FacultyView({
                     </div>
                     <RegStatus value={s.availability.state === "FREE" ? "ACTIVE" : s.availability.state === "MINE" ? "VERIFIED" : s.availability.state === "DEACTIVATED" ? "REJECTED" : "PENDING"} label={s.availability.label} />
                     {s.availability.state === "FREE" && canEdit ? (
-                      <Button size="small" type="primary" icon={<LinkOutlined />} onClick={() => { linkForm.setFieldsValue({ programType: programmes[0], designation: s.designation }); setLinkFor(s); }}>
+                      <Button size="small" type="primary" icon={<LinkOutlined />} onClick={() => setLinkFor(s)}>
                         Link by ID
                       </Button>
                     ) : null}
@@ -570,7 +570,7 @@ export default function FacultyView({
         <p style={{ marginTop: 0 }}>
           The link starts as <b>Requested</b>. PCP&apos;s verification officer checks it, and it becomes Active only when PCP approves. It does not count towards an application until then.
         </p>
-        <Form form={linkForm} layout="vertical" onFinish={requestLink} preserve={false}>
+        <Form key={linkFor?.facultyId ?? 0} form={linkForm} layout="vertical" onFinish={requestLink} preserve={false} initialValues={{ programType: programmes[0], designation: linkFor?.designation }}>
           <Row gutter={12}>
             <Col span={12}>
               <Form.Item name="programType" label="Programme" rules={[{ required: true, message: "Choose the programme" }]}>
@@ -679,7 +679,7 @@ function RecordDrawer({
   const { message } = App.useApp();
   const [kind, setKind] = useState<Kind>("CHANGE_DESIGNATION");
   const [form] = Form.useForm();
-  const [busy, start] = useTransition();
+  const [busy, start] = useBusy();
   const [outcome, setOutcome] = useState<{ ok: boolean; message: string } | null>(null);
   const mine = useMemo(() => (row ? rows.filter((r) => r.facultyId === row.facultyId) : []), [row, rows]);
   const other = row ? elsewhere.filter((e) => e.facultyId === row.facultyId) : [];
