@@ -212,12 +212,13 @@ export async function recordItemDecision(itemId: number, raw: unknown): Promise<
     if (["UPHELD", "DISMISSED", "WITHDRAWN"].includes(appeal.status)) return fail(`${appeal.ref} is already closed.`);
     const note = v.note || (v.decision === "UPHELD" ? "The council found the grounds of appeal valid and will decide the case afresh." : "");
     if (v.decision === "DISMISSED" && note.length < 5) return fail("Dismissing an appeal needs the council's reasons.");
-    await requireOtp(user.username, `decision:${appeal.ref}`, v.otp);
     const original = await db.query.applications.findFirst({ where: eq(schema.applications.id, appeal.applicationId) });
     const inst = await db.query.institutions.findFirst({ where: eq(schema.institutions.id, appeal.institutionId) });
     if (!original || !inst) return fail("The case under appeal was not found.");
     if (v.decision === "UPHELD" && !["REJECTED", "DEFERRED"].includes(original.status))
       return fail(`${original.ref} is ${original.status.toLowerCase().replace(/_/g, " ")} now, so it cannot be reopened. Dismiss the appeal or ask the officer to check the case.`);
+    // Checked last, so a refused decision does not use up the code.
+    await requireOtp(user.username, `decision:${appeal.ref}`, v.otp);
     await db.transaction(async (tx) => {
       const now = new Date();
       await tx.update(schema.appeals).set({ status: v.decision, decidedBy: user.username, decisionNote: note, decidedAt: now }).where(eq(schema.appeals.id, appeal.id));

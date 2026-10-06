@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
 import { nextModuleRef, notifyOn } from "@/lib/council";
+import { appealBlocks } from "@/lib/council-data";
 import { fileDocument } from "@/lib/letters";
 import { can } from "@/lib/roles";
 import { getUser } from "@/lib/session";
@@ -35,6 +36,9 @@ export async function POST(req: Request) {
   if (!["REJECTED", "DEFERRED"].includes(app.status)) return NextResponse.json({ error: `Only a rejection or a deferral can be appealed. ${app.ref} is not one.` }, { status: 400 });
   const open = await db.query.appeals.findFirst({ where: and(eq(schema.appeals.applicationId, app.id), inArray(schema.appeals.status, OPEN)) });
   if (open) return NextResponse.json({ error: `${app.ref} already has an open appeal (${open.ref}).` }, { status: 400 });
+  const prior = await db.select().from(schema.appeals).where(eq(schema.appeals.applicationId, app.id));
+  const dismissed = prior.find((p) => appealBlocks(p, app.decidedAt));
+  if (dismissed) return NextResponse.json({ error: `The council already heard an appeal on this decision (${dismissed.ref}, dismissed). A decision can be appealed once.` }, { status: 400 });
 
   const bytes = Buffer.from(await file.arrayBuffer());
   const result = await db.transaction(async (tx) => {

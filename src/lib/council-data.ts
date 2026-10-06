@@ -269,16 +269,22 @@ export async function loadAppeal(ref: string) {
 
 export type AppealDetail = NonNullable<Awaited<ReturnType<typeof loadAppeal>>>;
 
-/** Cases an institution can appeal: rejected or deferred, with no open appeal. */
+/** One appeal per decision: an open appeal, or a dismissed one on the same decision, blocks a new one. Withdrawn ones do not. */
+export function appealBlocks(p: { status: string; createdAt: Date }, decidedAt: Date | null) {
+  if (["FILED", "UNDER_REVIEW", "ON_AGENDA"].includes(p.status)) return true;
+  return p.status === "DISMISSED" && (!decidedAt || p.createdAt >= decidedAt);
+}
+
+/** Cases an institution can appeal: rejected or deferred, and not already appealed (see appealBlocks). */
 export async function appealableCases(institutionId: number) {
   const apps = await db
     .select()
     .from(schema.applications)
     .where(and(eq(schema.applications.institutionId, institutionId), inArray(schema.applications.status, ["REJECTED", "DEFERRED"])))
     .orderBy(desc(schema.applications.decidedAt));
-  const open = await db.select({ applicationId: schema.appeals.applicationId }).from(schema.appeals).where(inArray(schema.appeals.status, ["FILED", "UNDER_REVIEW", "ON_AGENDA"]));
+  const prior = apps.length ? await db.select().from(schema.appeals).where(inArray(schema.appeals.applicationId, apps.map((a) => a.id))) : [];
   return apps
-    .filter((a) => !open.some((o) => o.applicationId === a.id))
+    .filter((a) => !prior.some((p) => p.applicationId === a.id && appealBlocks(p, a.decidedAt)))
     .map((a) => ({ ref: a.ref, label: caseLabel(a), status: a.status, decidedAt: iso(a.decidedAt), note: a.decisionNote, grounds: a.decisionGrounds, deferUntil: a.deferUntil }));
 }
 

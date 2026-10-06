@@ -104,6 +104,14 @@ try {
     await page.getByText("With: PCP officer").waitFor();
     log("fru.poc filed appeal", appealRef, "against ACC-2026-0002 with evidence");
     await shot(page, "institution-appeal-filed");
+    // An institution sees and appeals only its own cases.
+    const other = await page.goto(`${BASE}/institution/appeals/APL-2026-0001`);
+    if (other.status() !== 404) fail(`fru.poc could open another institution's appeal (HTTP ${other.status()})`);
+    const res = await ctx.request.post(`${BASE}/api/appeals`, { multipart: { caseRef: "NOC-2026-0006", grounds: "Trying to appeal another institution's decision, which must be refused.", file: { name: "x.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 test") } } });
+    if (res.status() !== 404) fail(`appeal on another institution's case was not refused (HTTP ${res.status()})`);
+    const again = await ctx.request.post(`${BASE}/api/appeals`, { multipart: { caseRef: "ACC-2026-0002", grounds: "A second appeal on the same decision while the first is open.", file: { name: "x.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 test") } } });
+    if (again.status() !== 400) fail(`second open appeal was not refused (HTTP ${again.status()})`);
+    log("isolation: another institution's appeal is 404; appealing its case and a second appeal are refused");
     await ctx.close();
   }
   {
@@ -189,7 +197,8 @@ try {
     const { ctx, page } = await as("fru.poc", `/institution/appeals/${appealRef}`);
     await page.getByText("Council decision", { exact: true }).waitFor();
     await page.getByText("Appeal decision letter (PDF)").waitFor();
-    log("institution sees the upheld appeal and its decision letter");
+    if (await page.getByText("Officer's review").count()) fail("the officer's review note is shown to the institution");
+    log("institution sees the upheld appeal and its decision letter, not the officer's review note");
     await shot(page, "institution-appeal-upheld");
     await ctx.close();
   }
