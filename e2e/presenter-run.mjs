@@ -1,7 +1,8 @@
 // Presenter dry run: plays the demo story the way a presenter would, through the presenter guide
 // (one-click persona switch, "Fill demo values", "Attach sample PDF"), and captures a screenshot per beat.
 // Run after a fresh reset:  ./demo.sh reset && node e2e/presenter-run.mjs
-// Env: SHOTS=<dir> (default e2e/tour), VIDEO=1 to also record a video of the whole run.
+// Env: SHOTS=<dir> (default e2e/tour), VIDEO=1 to also record a video of the whole run,
+//      E2E_SKIP_ADMIN=1 on development copies (skips the beats that use or change shared Keycloak users).
 import { chromium } from "playwright-core";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -79,9 +80,9 @@ try {
   await guide(0);
   await shot("guide", "Presenter guide: who to be, what to click, what to say, one click to switch persona");
   await hideGuide();
-  await shot("institution-dashboard", "Riverside University's focal person: programs, renewal countdown, action list");
+  await shot("institution-dashboard", "Riverside University's Head: programme cards with history and Start renewal, the renewal alert, action list");
 
-  // Step 2: technician NOC
+  // Step 2: technician NOC: campus first, faculty by Faculty ID, documents
   await page.goto(BASE + "/institution/applications");
   await settle();
   await page.getByRole("button", { name: /New NOC application/ }).hover();
@@ -93,6 +94,9 @@ try {
   await click(page.getByRole("button", { name: "Save and run checks" }));
   await toast(/Saved/);
   await settle();
+  await click(page.getByRole("button", { name: "Link by specialisation" }));
+  await toast(/teachers linked/);
+  await settle();
   for (let i = 0; i < 3; i++) {
     await click(page.getByRole("button", { name: /Attach sample PDF/ }).first());
     await toast(/Uploaded v1/);
@@ -100,9 +104,9 @@ try {
   }
   await page.reload();
   await settle();
-  await shot("noc-draft", `New technician NOC ${ref}: 3 of 4 ready; the faculty-count check fails (3 of 4 needed)`);
-  await page.locator(".ant-card", { hasText: "Faculty count" }).last().scrollIntoViewIfNeeded();
-  await shot("noc-checks", "Automatic checks from PCP's own rules: faculty count fails, everything else passes");
+  await shot("noc-draft", `New technician NOC ${ref}: campus picked, 3 teachers linked by Faculty ID, documents attached`);
+  await page.locator("#case-faculty").scrollIntoViewIfNeeded();
+  await shot("noc-checks", "The check names the line and the rule: Pharmacology 1 teacher linked, 2 required for intake 60. Pay stays locked");
 
   // Step 3: faculty duplicates
   await page.goto(BASE + "/institution/faculty");
@@ -112,61 +116,70 @@ try {
   await page.locator(".ant-drawer").getByRole("button", { name: "Save and run checks" }).click();
   await page.locator(".ant-drawer .ant-alert-error").waitFor();
   await shot("faculty-blocked", "Blocked: this CNIC is already active at another institution, which is not named");
+  await page.waitForFunction(() => !document.querySelector(".ant-drawer .ant-btn-loading"));
   await page.getByRole("button", { name: "Try: near-duplicate" }).click();
   await page.locator(".ant-drawer").getByRole("button", { name: "Save and run checks" }).click();
   await page.locator(".ant-drawer .ant-alert-warning").last().waitFor();
   await shot("faculty-flagged", "Saved but flagged: “Mohammad Ali Khan” matches “Muhammad Ali Khan” after normalising");
   await page.keyboard.press("Escape");
 
-  // Step 4: fee
-  await page.goto(`${BASE}/institution/applications/${ref}`);
-  await settle();
-  await click(page.getByRole("button", { name: /Generate challan/ }));
-  await toast(/PSID/);
-  await settle();
-  await page.locator(".ant-card", { hasText: "Simulate bank confirmation" }).last().scrollIntoViewIfNeeded();
-  await shot("fee-raast", "Fee challan: 1Link PSID and a Raast QR (0% merchant fee)");
-  await click(page.getByRole("button", { name: /Simulate bank confirmation/ }));
-  await page.locator(".ant-modal").getByRole("button", { name: "Confirm" }).click();
-  await toast(/Payment confirmed/);
-
-  // Act II · step 5: officer resolves the duplicate
-  await guide(4);
+  // Act II · step 4: officer resolves the duplicate
+  await guide(3);
   await hideGuide();
   await shot("officer-duplicates", "PCP Officer: the possible duplicate side by side, differences highlighted");
   const flag = page.locator(".ant-card").filter({ hasText: "Dr. Mohammad Ali Khan" }).filter({ has: page.getByRole("button", { name: /Different people/ }) });
   await click(flag.getByRole("button", { name: /Different people/ }));
   await toast(/flag is cleared/i);
 
-  // Step 6: institution re-runs and submits
-  await guide(5);
+  // Step 5: the institution links the teacher by Faculty ID, pays (one-time code) and submits
+  await guide(4);
   await hideGuide();
-  await click(page.getByRole("button", { name: "Re-run" }));
-  await toast(/Checks re-run/);
+  const search = page.locator(".case-faculty-search");
+  await click(search);
+  await search.locator("input").fill("Mohammad Ali");
+  await page.waitForTimeout(900);
+  await page.locator(".ant-select-dropdown:visible .ant-select-item-option:not(.ant-select-item-option-disabled)", { hasText: "Pharmacy Technician" }).first().click();
+  await page.locator(".case-subject-select").click();
+  await page.locator(".ant-select-dropdown:visible .ant-select-item-option", { hasText: /^Pharmacology$/ }).click();
+  await page.locator("#case-faculty").scrollIntoViewIfNeeded();
+  await shot("faculty-picker", "Find the teacher by Faculty ID, CNIC or name and pick the subject: no names typed in");
+  await click(page.getByRole("button", { name: "Link teacher" }));
+  await toast(/linked to Pharmacology/);
   await settle();
   await page.waitForTimeout(800);
+  await click(page.getByRole("button", { name: /generate challan/i }));
+  await toast(/PSID/);
+  await settle();
+  await page.locator(".ant-card", { hasText: "Simulate bank confirmation" }).last().scrollIntoViewIfNeeded();
+  await shot("fee-raast", "Every check passes, so Pay opens: 1Link PSID and a Raast QR (0% merchant fee)");
+  await click(page.getByRole("button", { name: /Simulate bank confirmation/ }));
+  await page.locator(".ant-modal").waitFor();
+  await shot("otp", "Payments and decisions need a one-time code (shown on screen in the demo, SMS in production)");
+  await page.locator(".ant-modal").getByRole("button", { name: "Confirm" }).click();
+  await toast(/Payment confirmed/);
+  await settle();
   await page.evaluate(() => window.scrollTo(0, 0));
-  await shot("ready-to-submit", "All checks pass and the fee is paid: submission unlocks");
+  await shot("ready-to-submit", "All checks pass and the fee is paid: the Head can submit");
   await click(page.getByRole("button", { name: /Submit application/ }));
   await toast(/Submitted/);
   await settle();
   await page.evaluate(() => window.scrollTo(0, 0));
-  await shot("submitted", "Submitted: the institution sees exactly who holds its file");
+  await shot("submitted", "Submitted: the institution sees who holds its file and the stage clock");
 
-  // Step 7: scrutiny and deficiency
-  await guide(6);
+  // Step 6: scrutiny and deficiency
+  await guide(5);
   await hideGuide();
   await click(page.getByRole("button", { name: /Start scrutiny/ }));
   await toast(/Scrutiny started/);
   await settle();
   await click(page.getByRole("button", { name: "Fill demo values" }).first());
   await page.evaluate(() => window.scrollTo(0, 0));
-  await shot("scrutiny", "Officer's workspace: workflow track, who holds it, and only the actions this role owns");
+  await shot("scrutiny", "Officer's workspace: track, who holds it, the time limit, and only the actions this role owns");
   await click(page.getByRole("button", { name: "Raise deficiency", exact: true }));
   await toast(/Deficiency raised/);
 
-  // Step 8: institution responds
-  await guide(7);
+  // Step 7: institution responds
+  await guide(6);
   await hideGuide();
   await click(page.locator(".ant-card", { hasText: "Deficiencies raised by PCP" }).getByRole("button", { name: "Fill demo values" }));
   await click(page.getByRole("button", { name: /Attach sample PDF/ }).first());
@@ -178,11 +191,21 @@ try {
   await click(page.getByRole("button", { name: "Submit response" }));
   await toast(/Response submitted/);
 
-  // Step 9: accept, then the conflict-of-interest guard
-  await guide(8);
+  // Step 8: accept, technical review, then the team with the conflict-of-interest guard
+  await guide(7);
   await hideGuide();
   await click(page.getByRole("button", { name: "Accept" }));
   await toast(/accepted/);
+  await settle();
+  await page.waitForTimeout(800);
+  await click(page.getByRole("button", { name: /Pass scrutiny/ }));
+  await toast(/Scrutiny passed/);
+  await settle();
+  await page.waitForTimeout(800);
+  await click(page.locator(".ant-card", { hasText: "Your next step" }).getByRole("button", { name: "Fill demo values" }).first());
+  await shot("technical-review", "Technical review: the academic check against PCP standards, between scrutiny and inspection");
+  await click(page.getByRole("button", { name: /Record review/ }));
+  await toast(/Technical review recorded/);
   await settle();
   await page.waitForTimeout(800);
   await click(page.locator(".pcp-inspector-select"));
@@ -196,10 +219,10 @@ try {
   await page.getByRole("button", { name: "Schedule and notify" }).click();
   await toast(/Inspection scheduled/);
 
-  // Step 10: inspector
-  await guide(9);
+  // Step 9: inspector
+  await guide(8);
   await hideGuide();
-  await shot("inspector-home", "Inspector's view: only their assigned visits");
+  await shot("inspector-home", "Inspector's view: only their visits, as lead or member");
   await click(page.locator("tr", { hasText: ref }).getByRole("button", { name: "Open checklist" }));
   await page.waitForURL(/\/pcp\/inspections\/\d+/);
   await settle();
@@ -208,8 +231,8 @@ try {
   await click(page.getByRole("button", { name: "Submit inspection report" }));
   await page.waitForURL(new RegExp(`/pcp/applications/${ref}`));
 
-  // Step 11: forward
-  await guide(10);
+  // Step 10: forward
+  await guide(9);
   await hideGuide();
   await click(page.getByRole("button", { name: "Fill demo values" }).first());
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -217,26 +240,28 @@ try {
   await click(page.getByRole("button", { name: "Forward to council agenda" }));
   await toast(/Forwarded/);
 
-  // Act III · step 12: council and certificate
-  await guide(11);
+  // Act III · step 11: council decision (one-time code), decision letter, certificate (one-time code)
+  await guide(10);
   await hideGuide();
   await click(page.getByRole("button", { name: "Fill demo values" }).first());
   await page.evaluate(() => window.scrollTo(0, 0));
-  await shot("council", "Council secretary records the decision: separate duties, recorded conditions");
-  await click(page.getByRole("button", { name: /Approved$/ }));
+  await shot("council", "Council secretary: approve, defer with a return date, or reject with grounds");
+  await click(page.getByRole("button", { name: "Record approval" }));
+  await page.locator(".ant-modal").getByRole("button", { name: "Confirm" }).click();
   await toast(/approved/);
   await settle();
   await click(page.getByRole("button", { name: /Issue NOC certificate/ }));
+  await page.locator(".ant-modal").getByRole("button", { name: "Confirm" }).click();
   const issued = await toast(/Certificate NOC-/);
   const cert = /NOC-TECH-\d{4}-\d{4}/.exec(issued)?.[0];
   await settle();
   await page.evaluate(() => window.scrollTo(0, 0));
-  await shot("issued", `Certificate ${cert} issued: the track is complete`);
+  await shot("issued", `Certificate ${cert} issued, decision letter on file: the track is complete`);
   await page.goto(`${BASE}/certificate/${cert}`);
   await settle();
   await shot("certificate", "The NOC: QR code, SHA-256 fingerprint, digital signature");
 
-  // Step 13: public verification
+  // Step 12: public verification
   await page.goto(`${BASE}/verify/certificate/${cert}`);
   await settle();
   await shot("verify-genuine", "Scan the QR: anyone sees it is genuine and valid, without signing in");
@@ -244,34 +269,43 @@ try {
   await settle();
   await shot("verify-forged", "A forged number fails immediately");
 
-  // Step 14: tenant isolation
+  // Step 13: tenant isolation (nhc.poc; skipped on development copies where a sibling run may have disabled it)
+  if (!process.env.E2E_SKIP_ADMIN) {
+    await guide(12);
+    await hideGuide();
+    await shot("isolation-404", "Another institution opening Riverside's case gets 404: tenants never see each other");
+  }
+
+  // Act IV · step 14: the officer's work first, then the live picture
   await guide(13);
   await hideGuide();
-  await shot("isolation-404", "Another institution opening Riverside's case gets 404: tenants never see each other");
-
-  // Act IV · step 15–17: oversight
-  await guide(14);
-  await hideGuide();
-  await shot("executive-dashboard", "Executive dashboard: registry KPIs, the live case pipeline, risk signals", { full: false });
+  await shot("executive-dashboard", "My work first: due, blocked or overdue (with escalations), decided; every figure opens its list", { full: false });
   await page.evaluate(() => window.scrollTo(0, 860));
-  await shot("executive-dashboard-2", "Enrolment against approved intake, program status and the renewal watchlist");
-  await page.goto(BASE + "/pcp/admin");
+  await shot("executive-dashboard-2", "Case pipeline with the technical review stage, then charts below the task list");
+  await page.goto(`${BASE}/pcp/applications?overdue=1`);
   await settle();
-  await page.getByRole("button", { name: "Onboard institution" }).click();
-  await page.getByRole("button", { name: "Fill demo values" }).click();
-  await shot("onboard", "Super Admin onboards a new institution: PCP ID, Keycloak group and POC account in one step");
-  await page.locator(".ant-drawer").getByRole("button", { name: "Onboard institution" }).click();
-  await toast(/onboarded as/);
-  await page.locator(".ant-modal").waitFor();
-  await shot("temp-password", "The temporary password is shown once; Keycloak forces a change at first sign-in");
-  await page.locator(".ant-modal").getByRole("button", { name: "OK" }).click();
-  await page.locator("tr", { hasText: "nhc.poc" }).getByRole("button", { name: "Disable" }).click();
-  await page.locator(".ant-popconfirm").getByRole("button", { name: "OK" }).click();
-  await toast(/disabled/);
-  await shot("disabled", "Disabling a POC signs them out everywhere at once; history is kept");
-  await page.goto(BASE + "/pcp/audit");
-  await settle();
-  await shot("audit", "Every action of this story, hash-chained: Chain intact");
+  await shot("overdue", "Overdue cases first, with a badge; reminders then one escalation to the supervisor");
+
+  // Steps 15–16 create and disable shared Keycloak users; skip them on parallel development copies.
+  if (!process.env.E2E_SKIP_ADMIN) {
+    await guide(14);
+    await hideGuide();
+    await page.getByRole("button", { name: "Onboard institution" }).click();
+    await page.getByRole("button", { name: "Fill demo values" }).click();
+    await shot("onboard", "Super Admin onboards a new institution: PCP ID, Keycloak group and POC account in one step");
+    await page.locator(".ant-drawer").getByRole("button", { name: "Onboard institution" }).click();
+    await toast(/onboarded as/);
+    await page.locator(".ant-modal").waitFor();
+    await shot("temp-password", "The temporary password is shown once; Keycloak forces a change at first sign-in");
+    await page.locator(".ant-modal").getByRole("button", { name: "OK" }).click();
+    await page.locator("tr", { hasText: "nhc.poc" }).getByRole("button", { name: "Disable" }).click();
+    await page.locator(".ant-popconfirm").getByRole("button", { name: "OK" }).click();
+    await toast(/disabled/);
+    await shot("disabled", "Disabling a POC signs them out everywhere at once; history is kept");
+    await page.goto(BASE + "/pcp/audit");
+    await settle();
+    await shot("audit", "Every action of this story, hash-chained: Chain intact");
+  }
 
   writeFileSync(path.join(OUT, "beats.json"), JSON.stringify({ ref, cert, beats }, null, 2));
   console.log(`\nPRESENTER RUN PASSED · ${ref} · ${cert} · ${beats.length} screenshots in ${OUT}`);

@@ -1,10 +1,12 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, App, Button, Card, Col, Input, Row, Segmented, Upload } from "antd";
-import { CameraOutlined, CloudSyncOutlined, SendOutlined } from "@ant-design/icons";
+import Link from "next/link";
+import { Alert, App, Button, Card, Col, Input, Row, Segmented, Table, Upload } from "antd";
+import { CameraOutlined, CloudSyncOutlined, SendOutlined, TeamOutlined } from "@ant-design/icons";
 import { submitInspection } from "@/app/actions/pcp";
-import { PageTitle, fmtDate, programLabel } from "./common";
+import type { ChecklistItem } from "@/db/schema";
+import { PageTitle, Pill, StatusDot, fmtDate, programLabel } from "./common";
 import { FillDemo } from "./demo-helpers";
 
 type Result = "COMPLIANT" | "PARTIAL" | "NON_COMPLIANT" | "NA";
@@ -14,7 +16,10 @@ export default function InspectionForm(props: {
   inspectionId: number;
   status: string;
   criteria: string[];
-  context: { ref: string; program: string; inst: string; city: string; date: string; declaredIntake: number; declaredLabs: number; declaredBooks: number; facultyOnRecord: number };
+  canSubmit: boolean;
+  team: { name: string; province: string; lead: boolean }[];
+  report: { checklist: ChecklistItem[]; summary: string | null } | null;
+  context: { ref: string; program: string; inst: string; city: string; date: string; scope: string | null; declaredIntake: number; declaredLabs: number; declaredBooks: number; facultyOnRecord: number };
 }) {
   const { message } = App.useApp();
   const router = useRouter();
@@ -22,33 +27,70 @@ export default function InspectionForm(props: {
   const [items, setItems] = useState(props.criteria.map((c) => ({ criterion: c, result: "COMPLIANT" as Result, remarks: "" })));
   const [summary, setSummary] = useState("");
   const c = props.context;
-
-  if (props.status !== "SCHEDULED") return <Alert type="success" showIcon message="This inspection report has been submitted." />;
-  const done = items.filter((x) => x.result !== "NA" || x.remarks).length;
-
   const fillDemo = () => {
     setItems(items.map((x, i) => ({ ...x, result: "COMPLIANT", remarks: ["Verified on site", "Matches the declared inventory", "Seen and counted", "Records produced and checked"][i % 4] })));
-    setSummary("Adequate for an intake of 60; recommend approval.");
+    setSummary(`Adequate for an intake of ${c.declaredIntake || 60}; recommend approval.`);
   };
+
+  const teamCard = (
+    <Card size="small" style={{ marginBottom: 16 }} title={<span><TeamOutlined style={{ marginRight: 8, color: "#5b3cc4" }} />Team and scope</span>} data-testid="visit-team">
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: c.scope ? 10 : 0 }}>
+        {props.team.map((m) => (
+          <StatusDot key={m.name} tone={m.lead ? "violet" : "neutral"}>
+            {m.name} · {m.province} {m.lead ? "(lead)" : ""}
+          </StatusDot>
+        ))}
+      </div>
+      {c.scope ? <div style={{ fontSize: 13.5 }}><b>The institution was asked to prepare:</b> {c.scope}</div> : null}
+    </Card>
+  );
+  const head = (
+    <PageTitle
+      eyebrow="On-site inspection"
+      title={c.inst}
+      sub={
+        <span>
+          {c.city} · {programLabel(c.program)} · <span className="mono">{c.ref}</span> · {fmtDate(c.date)}
+        </span>
+      }
+      extra={props.canSubmit && props.status === "SCHEDULED" ? <FillDemo onClick={fillDemo} /> : <Link href={`/pcp/applications/${c.ref}`}><Button>Open the case</Button></Link>}
+    />
+  );
+  if (props.status !== "SCHEDULED")
+    return (
+      <>
+        {head}
+        <Alert type="success" showIcon style={{ marginBottom: 16 }} title="This inspection report has been submitted by the team lead." />
+        {teamCard}
+        {props.report ? (
+          <Card size="small" title="Report">
+            <Table size="small" rowKey="criterion" pagination={false} dataSource={props.report.checklist} columns={[{ title: "Criterion", dataIndex: "criterion" }, { title: "Result", dataIndex: "result", render: (v) => <Pill value={v} /> }, { title: "Remarks", dataIndex: "remarks" }]} />
+            <div style={{ marginTop: 10 }}><b>Summary:</b> {props.report.summary}</div>
+          </Card>
+        ) : null}
+      </>
+    );
+  if (!props.canSubmit)
+    return (
+      <>
+        {head}
+        <Alert type="info" showIcon style={{ marginBottom: 16 }} title="You are a member of this inspection team" description={`The lead, ${props.team.find((m) => m.lead)?.name ?? "the team lead"}, fills in and submits the checklist. Record your observations with the lead on site.`} />
+        {teamCard}
+      </>
+    );
+  const done = items.filter((x) => x.result !== "NA" || x.remarks).length;
+
 
   return (
     <>
-      <PageTitle
-        eyebrow="On-site inspection"
-        title={c.inst}
-        sub={
-          <span>
-            {c.city} · {programLabel(c.program)} · <span className="mono">{c.ref}</span> · {fmtDate(c.date)}
-          </span>
-        }
-        extra={<FillDemo onClick={fillDemo} />}
-      />
+      {head}
+      {teamCard}
       <Alert
         type="info"
         showIcon
         icon={<CloudSyncOutlined />}
         style={{ marginBottom: 16 }}
-        message="Designed for a tablet on site"
+        title="Designed for a tablet on site"
         description="In production this runs in ODK Collect: it works offline, keeps data encrypted on the device, geotags photos and syncs when the connection returns."
       />
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>

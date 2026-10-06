@@ -156,8 +156,56 @@ async function main() {
   await db.insert(schema.staff).values(STAFF.map(([username, displayName, role, province, s]) => ({ username, displayName, email: `${username}@demo.pcp.local`, role, province, institutionId: s ? inst[s].id : null, createdBy: "system" })));
 
   await db.insert(schema.rules).values([
-    { key: "noc.PHARMD", version: 1, effectiveFrom: "2026-01-01", description: "PharmD NOC requirements (demo values)", value: { maxIntake: 100, studentsPerFaculty: 10, minPhdFaculty: 2, minLabs: 4, minClassrooms: 5, minLibraryBooks: 1500, requiredDocs: ["Charter or affiliation letter", "Building plan", "Laboratory inventory", "Faculty appointment letters"] } },
-    { key: "noc.TECH", version: 1, effectiveFrom: "2026-01-01", description: "Pharmacy Technician NOC requirements (demo values)", value: { maxIntake: 60, studentsPerFaculty: 15, minPhdFaculty: 0, minLabs: 2, minClassrooms: 3, minLibraryBooks: 500, requiredDocs: ["Charter or affiliation letter", "Building plan", "Laboratory inventory"] } },
+    // Programme rules (demo values). Per-subject faculty: max(min, ceil(intake / perIntake)) teachers linked by Faculty ID.
+    // maxTeacherLoad: how many programmes or open cases one teacher may be counted on at a time.
+    {
+      key: "noc.PHARMD",
+      version: 1,
+      effectiveFrom: "2026-01-01",
+      description: "PharmD programme requirements (demo values)",
+      value: {
+        maxIntake: 150,
+        studentsPerFaculty: 10,
+        minPhdFaculty: 2,
+        minLabs: 4,
+        minClassrooms: 5,
+        minLibraryBooks: 1500,
+        requiredDocs: ["Charter or affiliation letter", "Building plan", "Laboratory inventory", "Faculty appointment letters"],
+        subjects: [
+          { name: "Pharmaceutics", perIntake: 40, min: 1 },
+          { name: "Pharmacology", perIntake: 40, min: 1 },
+          { name: "Pharmaceutical Chemistry", perIntake: 50, min: 1 },
+          { name: "Pharmacognosy", perIntake: 50, min: 1 },
+          { name: "Pharmacy Practice", perIntake: 60, min: 1 },
+        ],
+        maxTeacherLoad: 1,
+        accreditationDocs: ["Self-assessment evidence", "Annual compliance statement"],
+        accreditationYears: 3,
+      },
+    },
+    {
+      key: "noc.TECH",
+      version: 1,
+      effectiveFrom: "2026-01-01",
+      description: "Pharmacy Technician programme requirements (demo values)",
+      value: {
+        maxIntake: 60,
+        studentsPerFaculty: 15,
+        minPhdFaculty: 0,
+        minLabs: 2,
+        minClassrooms: 3,
+        minLibraryBooks: 500,
+        requiredDocs: ["Charter or affiliation letter", "Building plan", "Laboratory inventory"],
+        subjects: [
+          { name: "Pharmaceutics", perIntake: 60, min: 1 },
+          { name: "Pharmacology", perIntake: 40, min: 1 },
+          { name: "Pharmaceutical Chemistry", perIntake: 60, min: 1 },
+        ],
+        maxTeacherLoad: 1,
+        accreditationDocs: ["Self-assessment evidence", "Annual compliance statement"],
+        accreditationYears: 3,
+      },
+    },
     { key: "fees", version: 1, effectiveFrom: "2026-01-01", description: "Fees from the PCP FAQ (pcpisb.gov.pk/faqs)", value: { "NOC:PHARMD": 1000000, "NOC:TECH": 500000, "RENEWAL:PHARMD": 300000, "RENEWAL:TECH": 200000, "ACCREDITATION:PHARMD": 300000, "ACCREDITATION:TECH": 200000 } },
   ]);
 

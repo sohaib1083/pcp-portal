@@ -12,12 +12,12 @@ export type Persona = {
 };
 
 export const PERSONAS: Persona[] = [
-  { username: "ruh.poc", name: "Prof. Ayesha Khan", role: "Institution focal person", org: "Riverside University of Health Sciences", side: "institution", blurb: "Applies for a NOC, adds faculty, pays the fee, answers deficiencies" },
+  { username: "ruh.poc", name: "Prof. Ayesha Khan", role: "Institution focal person", org: "Riverside University of Health Sciences", side: "institution", blurb: "Applies for a NOC, links faculty by ID, pays the fee, submits, starts renewals" },
   { username: "nhc.poc", name: "Dr. Tariq Mehmood", role: "Institution focal person", org: "Northern Hills College of Pharmacy", side: "institution", blurb: "A second institution: proves tenants can't see each other's data" },
-  { username: "pcp.officer", name: "Usman Farooq", role: "PCP Officer", org: "Registration & scrutiny", side: "pcp", blurb: "Scrutiny, deficiencies, duplicate checks, inspection scheduling" },
+  { username: "pcp.officer", name: "Usman Farooq", role: "PCP Officer", org: "Registration & scrutiny", side: "pcp", blurb: "Scrutiny, technical review, deficiencies, duplicate checks, inspection teams" },
   { username: "pcp.inspector", name: "Dr. Kamran Javed", role: "PCP Inspector · Punjab", org: "Inspection panel", side: "pcp", blurb: "Fills the on-site checklist for assigned inspections only" },
   { username: "pcp.inspector2", name: "Dr. Zainab Qureshi", role: "PCP Inspector · KP", org: "Inspection panel", side: "pcp", blurb: "Blocked from KP institutions by the conflict-of-interest rule" },
-  { username: "pcp.secretary", name: "Dr. Nadia Hussain", role: "PCP Secretary", org: "Council secretariat", side: "pcp", blurb: "Records council decisions and issues QR-signed certificates" },
+  { username: "pcp.secretary", name: "Dr. Nadia Hussain", role: "PCP Secretary", org: "Council secretariat", side: "pcp", blurb: "Records council decisions with a one-time code and issues QR-signed certificates" },
   { username: "pcp.admin", name: "Super Admin", role: "PCP Super Admin", org: "System administration", side: "pcp", blurb: "Onboards institutions, manages users, reads the audit log" },
 ];
 
@@ -60,10 +60,10 @@ export const STORY: Step[] = [
     as: "ruh.poc",
     path: "/institution",
     do: [
-      "You are the single focal person (POC) of Riverside University.",
-      "Point out the program tree, **Action required** and the accreditation renewal countdown.",
+      "You are the Head of Riverside University.",
+      "Point out the programme cards (NOC, accreditation history, **Start renewal**), **Action required** and the renewal countdown.",
     ],
-    say: "Each institution sees only its own data. One accountable focal person per institution, created by PCP's Super Admin; there is no self-registration.",
+    say: "Each institution sees only its own data. The PharmD accreditation expires within 180 days, so the renewal alert has already fired and the renewal file is one click away.",
   },
   {
     act: ACTS[0],
@@ -72,10 +72,11 @@ export const STORY: Step[] = [
     path: "/institution/applications",
     do: [
       "Click **New NOC application** → **New Pharmacy Technician NOC application**.",
-      "Click **Fill demo values**, then **Save and run checks**.",
-      "Attach the 3 required documents with **Attach sample PDF** (or upload your own).",
+      "Click **Fill demo values** (campus first: Hayatabad campus), then **Save and run checks**.",
+      "Under **Faculty linked by Faculty ID** click **Link by specialisation**, or find each teacher by Faculty ID, CNIC or name and pick a subject.",
+      "Attach the 3 required documents with **Attach sample PDF**.",
     ],
-    say: "The checks come from PCP's own draft (faculty ratio, intake, labs, library, documents) and live in a versioned rules table, so PCP can change them without a developer. Note that the faculty check fails: 3 technician faculty, 4 needed.",
+    say: "The institution does not retype its profile: it picks the campus and fills only what is new. Teachers are linked by their PCP Faculty ID, never typed in. The check names the line and the rule: \"Pharmacology: 1 teacher linked, 2 required for intake 60.\" The Pay button stays locked until every check passes.",
   },
   {
     act: ACTS[0],
@@ -89,15 +90,6 @@ export const STORY: Step[] = [
     say: "CNIC is the hard key (NADRA Verisys in production). Names are compared after normalising spellings like Muhammad/Mohammad and Mehmood/Mahmood, so a teacher can't be counted at two colleges.",
   },
   {
-    act: ACTS[0],
-    title: "Pay the fee: PSID and Raast QR",
-    as: "ruh.poc",
-    path: "/institution/applications/{ref}",
-    fallback: "/institution/applications",
-    do: ["In the **Fee** card click **Generate challan**: a PSID and a Raast QR appear.", "Click **Simulate bank confirmation (demo)**."],
-    say: "Raast carries a 0% merchant fee and the State Bank wants government payments on Raast. In production the sponsor bank confirms through 1Link automatically.",
-  },
-  {
     act: ACTS[1],
     title: "Resolve the possible duplicate",
     as: "pcp.officer",
@@ -107,12 +99,16 @@ export const STORY: Step[] = [
   },
   {
     act: ACTS[1],
-    title: "Submit only when everything passes",
+    title: "Link the teacher, pay, then submit",
     as: "ruh.poc",
     path: "/institution/applications/{ref}",
     fallback: "/institution/applications",
-    do: ["Click **Re-run** on the automatic checks: all pass now.", "Click **Submit application**."],
-    say: "Submission stays locked until every check passes and the fee is paid, so PCP never receives an incomplete file.",
+    do: [
+      "In the faculty picker search `Mohammad Ali`, choose **Pharmacology**, click **Link teacher**: every check passes.",
+      "In the **Fee** card click **Pay fee: generate challan**, then **Simulate bank confirmation (demo)** and confirm the one-time code.",
+      "Click **Submit application**.",
+    ],
+    say: "Checks pass, then the challan, then the bank confirms with a one-time code, then the Head or Principal submits. A data-entry officer sees \"Ask your Head or Principal to submit\": nothing reaches PCP without a second check.",
   },
   {
     act: ACTS[1],
@@ -121,7 +117,7 @@ export const STORY: Step[] = [
     path: "/pcp/applications/{ref}",
     fallback: "/pcp/applications",
     do: ["Click **Start scrutiny (assign to me)**.", "Under **Raise a formal deficiency** click **Fill demo values**, then **Raise deficiency**."],
-    say: "Every deficiency has an ID, a deadline and the exact evidence required. The institution always sees who holds its file; HEC's attestation system drew complaints because applicants couldn't.",
+    say: "Every deficiency has an ID, a deadline and the exact evidence required. Both sides see who holds the file and the clock for the stage.",
   },
   {
     act: ACTS[1],
@@ -130,20 +126,21 @@ export const STORY: Step[] = [
     path: "/institution/applications/{ref}",
     fallback: "/institution/applications",
     do: ["In the deficiency card click **Fill demo values**, **Attach sample PDF** as evidence, then **Submit response**."],
-    say: "Responses and evidence are versioned and fingerprinted (SHA-256). Nothing travels by letter or email.",
+    say: "Responses and evidence are versioned and fingerprinted (SHA-256). Every email about the case is listed under Messages on the case itself.",
   },
   {
     act: ACTS[1],
-    title: "Inspection with a conflict-of-interest guard",
+    title: "Technical review and the inspection team",
     as: "pcp.officer",
     path: "/pcp/applications/{ref}",
     fallback: "/pcp/applications",
     do: [
-      "Click **Accept** on the deficiency response.",
-      "Under **Schedule inspection** pick **Dr. Zainab Qureshi · Khyber Pakhtunkhwa**, then **Schedule and notify**: blocked.",
+      "Click **Accept** on the deficiency response, then **Pass scrutiny: start technical review**.",
+      "Under **Technical review** click **Fill demo values**, then **Record review: ready for inspection**.",
+      "Under **Assign the inspection team** pick **Dr. Zainab Qureshi · Khyber Pakhtunkhwa** as lead, then **Schedule and notify**: blocked.",
       "Pick **Dr. Kamran Javed · Punjab**, then **Schedule and notify**.",
     ],
-    say: "PCP's draft says no inspector inspects an institution in their own province. The system enforces it instead of relying on memory.",
+    say: "The technical review is the academic check against PCP's standards. Then a team is assigned: no member inspects an institution in their own province or one they declared a conflict with. The institution is told the date, what to prepare and the team size.",
   },
   {
     act: ACTS[1],
@@ -151,7 +148,7 @@ export const STORY: Step[] = [
     as: "pcp.inspector",
     path: "/pcp/inspections",
     do: ["Click **Open checklist**, then **Fill demo values** (or mark each criterion yourself).", "Click **Submit inspection report**."],
-    say: "Inspectors see only their assigned visits, which suits a third-party inspection firm (the March 2025 reform). In production this runs offline in ODK with geotagged photos; the report PDF is filed in the institution's folder.",
+    say: "Team members see only their visits; the lead submits the checklist. In production this runs offline in ODK with geotagged photos; the report PDF is filed in the institution's folder.",
   },
   {
     act: ACTS[1],
@@ -168,8 +165,11 @@ export const STORY: Step[] = [
     as: "pcp.secretary",
     path: "/pcp/applications/{ref}",
     fallback: "/pcp/applications",
-    do: ["Click **Approved**.", "Click **Issue NOC certificate (QR + signed PDF)**, then **View / print certificate**."],
-    say: "The certificate carries a QR code and a SHA-256 fingerprint. E-signatures are valid under the Electronic Transactions Ordinance 2002 (a NIFT certificate in production).",
+    do: [
+      "Keep **Approve**, add a condition, click **Record approval** and confirm the one-time code. The decision letter is generated and filed.",
+      "Click **Issue NOC certificate (QR + signed PDF)**, confirm the code, then **View / print certificate**.",
+    ],
+    say: "Defer needs a reason and a return date; reject states its grounds. Every outcome produces a standard decision letter, and every decision needs a one-time code. The certificate carries a QR code and a SHA-256 fingerprint.",
   },
   {
     act: ACTS[2],
@@ -191,11 +191,14 @@ export const STORY: Step[] = [
   },
   {
     act: ACTS[3],
-    title: "PCP's live picture",
-    as: "pcp.admin",
+    title: "PCP's work, then the live picture",
+    as: "pcp.officer",
     path: "/pcp",
-    do: ["Walk through the KPIs, the pipeline and enrolment against approved intake, all live from the registry."],
-    say: "This answers the National Assembly committee's criticism that PCP keeps no reliable records of institutes, enrolment or graduates.",
+    do: [
+      "**My work** comes first: what is due, what is blocked or overdue (NOC-2026-0001 has passed its time limit and was escalated), and what was decided.",
+      "Click any figure, for example **Inspections this month** or **Awaiting a decision**: it opens the list behind it.",
+    ],
+    say: "Every stage has a time limit with a clock both sides can see. A late case gets a reminder, then one escalation to the supervisor. Charts sit below the task list, not above it.",
   },
   {
     act: ACTS[3],
@@ -213,7 +216,7 @@ export const STORY: Step[] = [
     title: "Tamper-evident audit log",
     as: "pcp.admin",
     path: "/pcp/audit",
-    do: ["Every action from this demo is here, hash-chained. The banner reads **Chain intact**."],
+    do: ["Every action from this demo is here, including who opened each case, hash-chained. The banner reads **Chain intact**."],
     say: "Editing or deleting any past entry, even directly in the database, breaks the chain from that point. No niche ledger product needed (AWS shut QLDB down in 2025).",
   },
 ];

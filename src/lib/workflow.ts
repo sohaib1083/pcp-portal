@@ -1,5 +1,6 @@
-// NOC / accreditation workflow as an explicit state machine.
-// The flow follows PCP's draft; who may move each step is the proposed permission matrix.
+// NOC / accreditation / renewal workflow as an explicit state machine (guide section 4 table).
+// Each step is owned by a permission from src/lib/roles.ts, so a role with that duty can move it.
+import { PERMISSIONS, can, type Permission } from "./roles";
 
 export const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Draft",
@@ -7,6 +8,7 @@ export const STATUS_LABELS: Record<string, string> = {
   UNDER_SCRUTINY: "Under scrutiny",
   DEFICIENCY_RAISED: "Deficiency raised",
   RESPONDED: "Institution responded",
+  TECHNICAL_REVIEW: "Technical review",
   INSPECTION_SCHEDULED: "Inspection scheduled",
   INSPECTION_SUBMITTED: "Inspection report submitted",
   COUNCIL_REVIEW: "Awaiting council decision",
@@ -16,12 +18,27 @@ export const STATUS_LABELS: Record<string, string> = {
   NOC_ISSUED: "Certificate issued",
 };
 
+/** Short stage names for the service-level clock ("Scrutiny · 4 days left"). */
+export const STAGE_LABELS: Record<string, string> = {
+  SUBMITTED: "Awaiting scrutiny",
+  UNDER_SCRUTINY: "Scrutiny",
+  DEFICIENCY_RAISED: "Deficiency response",
+  RESPONDED: "Response review",
+  TECHNICAL_REVIEW: "Technical review",
+  INSPECTION_SCHEDULED: "Inspection report",
+  INSPECTION_SUBMITTED: "Report review",
+  COUNCIL_REVIEW: "Council",
+  APPROVED: "Certificate issue",
+  DEFERRED: "Deferral",
+};
+
 export const STATUS_COLORS: Record<string, string> = {
   DRAFT: "default",
   SUBMITTED: "blue",
   UNDER_SCRUTINY: "geekblue",
   DEFICIENCY_RAISED: "orange",
   RESPONDED: "gold",
+  TECHNICAL_REVIEW: "geekblue",
   INSPECTION_SCHEDULED: "purple",
   INSPECTION_SUBMITTED: "purple",
   COUNCIL_REVIEW: "cyan",
@@ -35,38 +52,56 @@ export const STEPS = [
   "DRAFT",
   "SUBMITTED",
   "UNDER_SCRUTINY",
+  "TECHNICAL_REVIEW",
   "INSPECTION_SCHEDULED",
   "INSPECTION_SUBMITTED",
   "COUNCIL_REVIEW",
   "NOC_ISSUED",
 ] as const;
 
-export function stepIndex(status: string): number {
-  if (status === "DEFICIENCY_RAISED" || status === "RESPONDED") return 2;
-  if (status === "APPROVED" || status === "DEFERRED" || status === "REJECTED") return 5;
+/** Labels for the case header track, one per STEPS entry. */
+export const TRACK_LABELS = ["Draft", "Submitted", "Scrutiny", "Technical review", "Inspection", "Report", "Council", "Certificate"];
+
+/** Where a status sits on the track. A deficiency sits on the stage it was raised from (`origin`). */
+export function stepIndex(status: string, origin?: string | null): number {
+  if (status === "DEFICIENCY_RAISED" || status === "RESPONDED") {
+    const o = origin && (STEPS as readonly string[]).includes(origin) ? origin : "UNDER_SCRUTINY";
+    return (STEPS as readonly string[]).indexOf(o);
+  }
+  if (status === "APPROVED" || status === "DEFERRED" || status === "REJECTED") return 6;
   const i = (STEPS as readonly string[]).indexOf(status);
   return i < 0 ? 0 : i;
 }
 
-type Transition = { from: string[]; to: string; roles: string[]; label: string };
+type Transition = { from: string[]; to: string; perm: Permission; roles: readonly string[]; label: string };
+
+const t = (from: string[], to: string, perm: Permission, label: string): Transition => ({ from, to, perm, roles: PERMISSIONS[perm], label });
+
+/** Deficiencies can be raised from any PCP review stage; accepting the responses returns the case to that stage. */
+export const DEFICIENCY_FROM = ["UNDER_SCRUTINY", "TECHNICAL_REVIEW", "INSPECTION_SUBMITTED", "DEFERRED", "RESPONDED"];
 
 export const TRANSITIONS: Transition[] = [
-  { from: ["DRAFT"], to: "SUBMITTED", roles: ["inst_poc"], label: "Submit to PCP" },
-  { from: ["SUBMITTED"], to: "UNDER_SCRUTINY", roles: ["pcp_officer"], label: "Start scrutiny" },
-  { from: ["UNDER_SCRUTINY", "DEFERRED", "RESPONDED"], to: "DEFICIENCY_RAISED", roles: ["pcp_officer"], label: "Raise deficiency" },
-  { from: ["DEFICIENCY_RAISED"], to: "RESPONDED", roles: ["inst_poc"], label: "Respond" },
-  { from: ["RESPONDED"], to: "UNDER_SCRUTINY", roles: ["pcp_officer"], label: "Accept responses" },
-  { from: ["UNDER_SCRUTINY"], to: "INSPECTION_SCHEDULED", roles: ["pcp_officer"], label: "Schedule inspection" },
-  { from: ["INSPECTION_SCHEDULED"], to: "INSPECTION_SUBMITTED", roles: ["pcp_inspector"], label: "Submit inspection report" },
-  { from: ["INSPECTION_SUBMITTED"], to: "COUNCIL_REVIEW", roles: ["pcp_officer"], label: "Forward to council" },
-  { from: ["COUNCIL_REVIEW"], to: "APPROVED", roles: ["pcp_secretary"], label: "Record: approved" },
-  { from: ["COUNCIL_REVIEW"], to: "DEFERRED", roles: ["pcp_secretary"], label: "Record: deferred" },
-  { from: ["COUNCIL_REVIEW"], to: "REJECTED", roles: ["pcp_secretary"], label: "Record: rejected" },
-  { from: ["APPROVED"], to: "NOC_ISSUED", roles: ["pcp_secretary"], label: "Issue certificate" },
+  t(["DRAFT"], "SUBMITTED", "inst.app.submit", "Submit to PCP"),
+  t(["SUBMITTED"], "UNDER_SCRUTINY", "pcp.app.scrutiny", "Start scrutiny"),
+  t(DEFICIENCY_FROM, "DEFICIENCY_RAISED", "pcp.app.scrutiny", "Raise deficiency"),
+  t(["DEFICIENCY_RAISED"], "RESPONDED", "inst.deficiency.respond", "Respond"),
+  t(["RESPONDED"], "UNDER_SCRUTINY", "pcp.app.scrutiny", "Accept responses"),
+  t(["RESPONDED"], "TECHNICAL_REVIEW", "pcp.app.scrutiny", "Accept responses"),
+  t(["RESPONDED"], "INSPECTION_SUBMITTED", "pcp.app.scrutiny", "Accept responses"),
+  t(["RESPONDED"], "DEFERRED", "pcp.app.scrutiny", "Accept responses"),
+  t(["UNDER_SCRUTINY"], "TECHNICAL_REVIEW", "pcp.app.scrutiny", "Pass scrutiny"),
+  t(["TECHNICAL_REVIEW"], "INSPECTION_SCHEDULED", "pcp.inspection.schedule", "Schedule inspection"),
+  t(["INSPECTION_SCHEDULED"], "INSPECTION_SUBMITTED", "pcp.inspection.submit", "Submit inspection report"),
+  t(["INSPECTION_SUBMITTED"], "COUNCIL_REVIEW", "pcp.app.scrutiny", "Forward to council"),
+  t(["DEFERRED"], "COUNCIL_REVIEW", "pcp.app.scrutiny", "Return to council"),
+  t(["COUNCIL_REVIEW"], "APPROVED", "pcp.council.decide", "Record: approved"),
+  t(["COUNCIL_REVIEW"], "DEFERRED", "pcp.council.decide", "Record: deferred"),
+  t(["COUNCIL_REVIEW"], "REJECTED", "pcp.council.decide", "Record: rejected"),
+  t(["APPROVED"], "NOC_ISSUED", "pcp.noc.issue", "Issue certificate"),
 ];
 
 export function canTransition(from: string, to: string, roles: string[]) {
-  return TRANSITIONS.some((t) => t.from.includes(from) && t.to === to && t.roles.some((r) => roles.includes(r)));
+  return TRANSITIONS.some((x) => x.from.includes(from) && x.to === to && can(roles, x.perm));
 }
 
 export function assertTransition(from: string, to: string, roles: string[]) {
@@ -80,12 +115,79 @@ export const OPEN_STATUSES = [
   "UNDER_SCRUTINY",
   "DEFICIENCY_RAISED",
   "RESPONDED",
+  "TECHNICAL_REVIEW",
   "INSPECTION_SCHEDULED",
   "INSPECTION_SUBMITTED",
   "COUNCIL_REVIEW",
   "APPROVED",
   "DEFERRED",
 ];
+export const CLOSED_STATUSES = ["NOC_ISSUED", "REJECTED"];
+
+/** Context that decides who holds a case beyond its status. */
+export type HolderCtx = { reviewDone?: boolean; deferUntil?: string | null; inspectionLead?: string | null };
+
+/**
+ * The permission whose holders must act next, or null when the institution holds the file.
+ * INSPECTION_SCHEDULED is held by the assigned lead only (checked separately).
+ */
+export function pendingPermission(status: string, ctx: HolderCtx = {}): Permission | null {
+  switch (status) {
+    case "SUBMITTED":
+    case "UNDER_SCRUTINY":
+    case "RESPONDED":
+    case "INSPECTION_SUBMITTED":
+      return "pcp.app.scrutiny";
+    case "TECHNICAL_REVIEW":
+      return ctx.reviewDone ? "pcp.inspection.schedule" : "pcp.app.scrutiny";
+    case "INSPECTION_SCHEDULED":
+      return "pcp.inspection.submit";
+    case "COUNCIL_REVIEW":
+      return "pcp.council.decide";
+    case "APPROVED":
+      return "pcp.noc.issue";
+    case "DEFERRED":
+      // Deferred: the institution has until the return date; after it, the officer puts it back on the agenda.
+      return ctx.deferUntil && ctx.deferUntil > new Date().toISOString().slice(0, 10) ? null : "pcp.app.scrutiny";
+    default:
+      return null;
+  }
+}
+
+/** Does this PCP user have to act on the case now? */
+export function needsAction(status: string, roles: string[], username: string, ctx: HolderCtx = {}) {
+  const perm = pendingPermission(status, ctx);
+  if (!perm) return false;
+  if (status === "INSPECTION_SCHEDULED") return !!ctx.inspectionLead && ctx.inspectionLead === username;
+  return can(roles, perm);
+}
+
+/** Who holds the file, in one word, for queues and pipelines. */
+export function holderLabel(status: string, ctx: HolderCtx = {}) {
+  switch (status) {
+    case "DRAFT":
+      return "Institution";
+    case "SUBMITTED":
+    case "UNDER_SCRUTINY":
+    case "RESPONDED":
+    case "INSPECTION_SUBMITTED":
+      return "Officer";
+    case "TECHNICAL_REVIEW":
+      return ctx.reviewDone ? "Coordinator" : "Officer";
+    case "DEFICIENCY_RAISED":
+      return "Institution";
+    case "INSPECTION_SCHEDULED":
+      return "Inspection team";
+    case "COUNCIL_REVIEW":
+      return "Council";
+    case "APPROVED":
+      return "Secretary";
+    case "DEFERRED":
+      return pendingPermission(status, ctx) ? "Officer" : "Institution";
+    default:
+      return "Closed";
+  }
+}
 
 export const KIND_LABELS: Record<string, string> = {
   NOC: "NOC",
@@ -97,3 +199,25 @@ export const PROGRAM_LABELS: Record<string, string> = {
   PHARMD: "PharmD",
   TECH: "Pharmacy Technician",
 };
+
+/** Self-assessment criteria for accreditation and renewal (guide section 5). */
+export const SELF_ASSESSMENT_CRITERIA = [
+  "Governance and administration",
+  "Faculty strength and qualifications",
+  "Curriculum and scheme of studies",
+  "Laboratories and equipment",
+  "Library and learning resources",
+  "Admissions and student records",
+  "Examinations and results",
+  "Hospital and pharmacy practice linkage",
+  "Finance and sustainability",
+];
+
+/** Technical review criteria: the academic check against PCP standards. */
+export const TECHNICAL_REVIEW_CRITERIA = [
+  "Scheme of studies follows the PCP curriculum",
+  "Faculty qualifications match the subjects they are linked to",
+  "Laboratories cover the practical courses",
+  "Library and learning resources are adequate",
+  "Requested intake fits classrooms, labs and faculty",
+];

@@ -9,8 +9,10 @@ export async function certificateQrDataUrl(certNo: string) {
   return QRCode.toDataURL(verifyUrl(certNo), { width: 220, margin: 1 });
 }
 
-/** NOC certificate PDF with a QR code pointing at the public verification page. */
+/** NOC or accreditation certificate PDF with a QR code pointing at the public verification page. */
 export async function certificatePdf(o: {
+  kind?: string; // NOC (default) | ACCREDITATION | RENEWAL
+  validFrom?: string;
   certNo: string;
   institution: string;
   institutionCode: string;
@@ -28,14 +30,17 @@ export async function certificatePdf(o: {
   const green = rgb(0.04, 0.43, 0.31);
   page.drawRectangle({ x: 24, y: 24, width: 547, height: 794, borderColor: green, borderWidth: 3 });
   page.drawText("PHARMACY COUNCIL OF PAKISTAN", { x: 140, y: 760, size: 18, font: bold, color: green });
-  page.drawText("DEMO CERTIFICATE - fictional data, not a real NOC", { x: 140, y: 740, size: 10, font, color: rgb(0.7, 0.1, 0.1) });
-  page.drawText("No Objection Certificate", { x: 180, y: 690, size: 22, font: bold });
+  const acc = !!o.kind && o.kind !== "NOC";
+  const title = acc ? "Accreditation Certificate" : "No Objection Certificate";
+  page.drawText(`DEMO CERTIFICATE - fictional data, not a real ${acc ? "accreditation" : "NOC"}`, { x: 140, y: 740, size: 10, font, color: rgb(0.7, 0.1, 0.1) });
+  page.drawText(title, { x: (595 - bold.widthOfTextAtSize(title, 22)) / 2, y: 690, size: 22, font: bold });
   const lines = [
     ["Certificate no.", o.certNo],
     ["Institution", `${o.institution} (${o.institutionCode})`],
     ["City", o.city],
     ["Program", o.program],
-    ["Approved annual intake", String(o.intake)],
+    [acc ? "Accredited annual intake" : "Approved annual intake", String(o.intake)],
+    ...(acc ? [["Type", o.kind === "RENEWAL" ? "Renewal of accreditation" : "First accreditation"], ["Accredited from", o.validFrom ?? o.issuedAt.toISOString().slice(0, 10)]] : []),
     ["Issued", o.issuedAt.toISOString().slice(0, 10)],
     ["Valid until", o.validUntil],
   ];
@@ -43,7 +48,7 @@ export async function certificatePdf(o: {
     page.drawText(k, { x: 70, y: 630 - i * 28, size: 12, font, color: rgb(0.35, 0.35, 0.35) });
     page.drawText(v, { x: 240, y: 630 - i * 28, size: 12, font: bold });
   });
-  if (o.decisionNote) page.drawText(`Council note: ${o.decisionNote}`.slice(0, 90), { x: 70, y: 410, size: 10, font });
+  if (o.decisionNote) page.drawText(`Council note: ${o.decisionNote}`.slice(0, 90), { x: 70, y: 620 - lines.length * 28, size: 10, font });
   const png = await QRCode.toBuffer(verifyUrl(o.certNo), { width: 300, margin: 1 });
   const img = await pdf.embedPng(png);
   page.drawImage(img, { x: 70, y: 150, width: 150, height: 150 });

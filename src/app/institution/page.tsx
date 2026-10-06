@@ -1,7 +1,9 @@
 import { and, desc, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
 import InstitutionDashboard from "@/components/InstitutionDashboard";
 import { db, schema } from "@/db";
+import { programmeCards } from "@/lib/programmes";
 import { registryActions } from "@/lib/registry";
+import { can } from "@/lib/roles";
 import { requireInstitution } from "@/lib/session";
 import { daysUntil, iso } from "@/lib/util";
 
@@ -10,6 +12,7 @@ export default async function InstitutionHome({ searchParams }: { searchParams: 
   const { user, inst } = await requireInstitution("inst.dashboard");
 
   const programs = await db.select().from(schema.programs).where(eq(schema.programs.institutionId, inst.id));
+  const cards = await programmeCards(inst.id);
   const studentCounts = await db
     .select({ type: schema.students.programType, n: sql<number>`count(*)::int` })
     .from(schema.students)
@@ -46,7 +49,7 @@ export default async function InstitutionHome({ searchParams }: { searchParams: 
   if (pendingFaculty[0].n > 0) actions.push({ text: `${pendingFaculty[0].n} faculty record(s) awaiting PCP verification`, level: "info", link: "/institution/faculty" });
   for (const p of programs) {
     const d = daysUntil(p.accreditationValidUntil);
-    if (d !== null && d <= 180) actions.push({ text: `${p.type === "PHARMD" ? "PharmD" : "Technician"} accreditation renewal due in ${d} days (expires ${p.accreditationValidUntil})`, level: d <= 90 ? "error" : "warning" });
+    if (d !== null && d <= 180) actions.push({ text: `${p.type === "PHARMD" ? "PharmD" : "Technician"} accreditation renewal due in ${d} days (expires ${p.accreditationValidUntil})`, level: d <= 90 ? "error" : "warning", link: "/institution/applications#programmes" });
   }
   if (outstanding[0].n > 0) actions.push({ text: `${outstanding[0].n} outstanding deficiencies`, level: "error", link: "/institution/applications" });
 
@@ -64,7 +67,9 @@ export default async function InstitutionHome({ searchParams }: { searchParams: 
         intake: p.approvedIntake,
         students: studentCounts.find((s) => s.type === p.type)?.n ?? 0,
         faculty: facultyCounts.find((f) => f.type === p.type)?.n ?? 0,
+        card: cards.find((c) => c.type === p.type),
       }))}
+      canStart={can(user.roles, "inst.app.edit")}
       actions={actions}
       apps={apps.map((a) => ({ ...a, updatedAt: iso(a.updatedAt)! }))}
       notifications={notes.map((n) => ({ id: n.id, title: n.title, body: n.body, link: n.link, createdAt: iso(n.createdAt)! }))}

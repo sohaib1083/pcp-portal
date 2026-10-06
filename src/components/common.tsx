@@ -42,6 +42,7 @@ const WORKFLOW_TONE: Record<string, Tone> = {
   UNDER_SCRUTINY: "info",
   DEFICIENCY_RAISED: "warn",
   RESPONDED: "warn",
+  TECHNICAL_REVIEW: "info",
   INSPECTION_SCHEDULED: "violet",
   INSPECTION_SUBMITTED: "violet",
   COUNCIL_REVIEW: "teal",

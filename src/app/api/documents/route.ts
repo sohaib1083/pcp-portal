@@ -31,9 +31,11 @@ export async function POST(req: Request) {
   if (appRef) {
     const app = await db.query.applications.findFirst({ where: and(eq(schema.applications.ref, appRef), eq(schema.applications.institutionId, inst.id)) });
     if (!app) return NextResponse.json({ error: "Application not found" }, { status: 404 });
-    if (app.status !== "DRAFT" && !deficiencyId) return NextResponse.json({ error: "Submitted applications accept documents only as deficiency evidence" }, { status: 400 });
+    // After submission, documents come in only as deficiency evidence or as the answer to a deferral.
+    const deferralAnswer = app.status === "DEFERRED" && docType === "Deferral evidence";
+    if (app.status !== "DRAFT" && !deficiencyId && !deferralAnswer) return NextResponse.json({ error: "Submitted applications accept documents only as deficiency or deferral evidence" }, { status: 400 });
     applicationId = app.id;
-    folder = app.kind === "ACCREDITATION" ? `accreditation/${new Date().getFullYear()}/${app.ref}` : `noc-applications/${app.ref}`;
+    folder = app.kind !== "NOC" ? `accreditation/${new Date().getFullYear()}/${app.ref}` : `noc-applications/${app.ref}`;
   }
   if (deficiencyId) {
     const def = await db.query.deficiencies.findFirst({ where: and(eq(schema.deficiencies.id, deficiencyId), eq(schema.deficiencies.institutionId, inst.id)) });

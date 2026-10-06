@@ -3,10 +3,13 @@ import InstitutionsTable from "@/components/InstitutionsTable";
 import { db, schema } from "@/db";
 import { requirePermission } from "@/lib/session";
 
-export default async function InstitutionsPage() {
+export default async function InstitutionsPage({ searchParams }: { searchParams: Promise<{ programme?: string }> }) {
   await requirePermission("pcp.app.view");
-  const insts = await db.select().from(schema.institutions).orderBy(schema.institutions.code);
+  const { programme } = await searchParams;
   const programs = await db.select().from(schema.programs);
+  // ?programme=PHARMD|TECH: institutions with an approved NOC for that programme (the dashboard tiles open this list).
+  const all = await db.select().from(schema.institutions).orderBy(schema.institutions.code);
+  const insts = programme ? all.filter((i) => programs.some((p) => p.institutionId === i.id && p.type === programme.toUpperCase() && p.nocStatus === "APPROVED")) : all;
   const students = await db
     .select({ id: schema.students.institutionId, n: sql<number>`count(*)::int` })
     .from(schema.students)

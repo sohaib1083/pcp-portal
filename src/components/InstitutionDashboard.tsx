@@ -15,8 +15,10 @@ import {
 } from "@ant-design/icons";
 import { PageTitle, Pill, StatCard, StatusTag, fmtDate, kindLabel, programLabel, timeAgo } from "./common";
 import { daysUntil } from "@/lib/format";
+import type { ProgrammeCardData } from "@/lib/programmes";
+import { HistoryList, ProgrammeActions } from "./ProgrammeCards";
 
-type Program = { type: string; nocStatus: string; nocNumber: string | null; accreditationStatus: string; validUntil: string | null; intake: number; students: number; faculty: number };
+type Program = { type: string; nocStatus: string; nocNumber: string | null; accreditationStatus: string; validUntil: string | null; intake: number; students: number; faculty: number; card?: ProgrammeCardData };
 
 const LEVEL = {
   error: { icon: <ExclamationCircleFilled />, c: "#b4141f", bg: "#fff1f0" },
@@ -24,10 +26,10 @@ const LEVEL = {
   info: { icon: <InfoCircleFilled />, c: "#1d5fb0", bg: "#eaf2fc" },
 };
 
-function ProgramCard({ p }: { p: Program }) {
+function ProgramCard({ p, canStart }: { p: Program; canStart?: boolean }) {
   const d = daysUntil(p.validUntil);
-  // Accreditation runs 5 years; show how much of the current term is left.
-  const left = d !== null ? Math.max(0, Math.min(100, Math.round((d / (5 * 365)) * 100))) : 0;
+  // Accreditation runs 3 years; show how much of the current term is left.
+  const left = d !== null ? Math.max(0, Math.min(100, Math.round((d / (3 * 365)) * 100))) : 0;
   return (
     <div style={{ border: "1px solid var(--line)", borderRadius: 14, padding: 16, height: "100%" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -67,6 +69,14 @@ function ProgramCard({ p }: { p: Program }) {
       {d !== null && d <= 180 ? (
         <div style={{ fontSize: 12, color: d <= 90 ? "#b4141f" : "#a15c00", marginTop: 2 }}>Renewal due: {d} days left</div>
       ) : null}
+      {p.card ? (
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line-2)", display: "grid", gap: 8 }}>
+          <HistoryList rows={p.card.history} limit={3} />
+          <div>
+            <ProgrammeActions p={p.card} canStart={!!canStart} />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -76,6 +86,7 @@ export default function InstitutionDashboard(props: {
   userName: string;
   inst: { name: string; code: string; status: string; city: string; province: string; sector: string };
   programs: Program[];
+  canStart?: boolean;
   actions: { text: string; level: "error" | "warning" | "info"; link?: string }[];
   apps: { ref: string; kind: string; programType: string; status: string; updatedAt: string }[];
   notifications: { id: number; title: string; body: string; link: string | null; createdAt: string }[];
@@ -147,7 +158,7 @@ export default function InstitutionDashboard(props: {
               <Row gutter={[14, 14]}>
                 {programs.map((p) => (
                   <Col key={p.type} xs={24} md={12}>
-                    <ProgramCard p={p} />
+                    <ProgramCard p={p} canStart={props.canStart} />
                   </Col>
                 ))}
               </Row>

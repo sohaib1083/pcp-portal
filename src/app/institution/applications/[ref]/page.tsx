@@ -11,10 +11,20 @@ export default async function InstitutionApplicationPage({ params }: { params: P
   // Scope: an institution sees only its own applications.
   if (!d || d.inst?.code !== inst.code) notFound();
 
-  // Institutions see PCP's reviewed findings, not inspectors' names or raw notes.
+  // Institutions see the date, what to prepare and the team size; not inspectors' names, raw notes,
+  // PCP's internal technical review or messages addressed to PCP staff.
   const scoped = {
     ...d,
-    inspections: d.inspections.map((i) => ({ ...i, inspector: "", inspectorName: "PCP inspection team", checklist: [], summary: null })),
+    inspections: d.inspections.map((i) => ({
+      ...i,
+      inspector: "",
+      inspectorName: "PCP inspection team",
+      checklist: [],
+      summary: null,
+      team: i.team.map((m) => ({ ...m, username: "", name: "", province: null })),
+    })),
+    technicalReview: null,
+    messages: d.messages.filter((m) => m.institutionId === inst.id || m.audience === `inst:${inst.code}`),
   };
 
   return (

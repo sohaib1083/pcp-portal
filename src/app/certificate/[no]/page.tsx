@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import CertificatePrint from "@/components/CertificatePrint";
 import { db, schema } from "@/db";
 import { certificateQrDataUrl, verifyUrl } from "@/lib/certificate";
@@ -14,11 +14,16 @@ export default async function CertificatePage({ params }: { params: Promise<{ no
   const inst = await db.query.institutions.findFirst({ where: eq(schema.institutions.id, app.institutionId) });
   if (!inst) notFound();
   if (user.kind === "institution" && user.institutionCode !== inst.code) redirect("/home");
-  const pdf = await db.query.documents.findFirst({ where: and(eq(schema.documents.applicationId, app.id), eq(schema.documents.docType, "NOC certificate")) });
+  const acc = app.kind !== "NOC";
+  const pdf = await db.query.documents.findFirst({ where: and(eq(schema.documents.applicationId, app.id), eq(schema.documents.docType, acc ? "Accreditation certificate" : "NOC certificate")), orderBy: desc(schema.documents.version) });
+  // The term an accreditation certificate covers: from the history row written when it was issued.
+  const hist = acc ? await db.query.accreditationHistory.findFirst({ where: eq(schema.accreditationHistory.applicationRef, app.ref), orderBy: desc(schema.accreditationHistory.id) }) : null;
   return (
     <CertificatePrint
       c={{
         no,
+        kind: app.kind,
+        term: hist ? `${hist.validFrom}–${hist.validUntil}` : null,
         institution: inst.name,
         code: inst.code,
         city: inst.city,

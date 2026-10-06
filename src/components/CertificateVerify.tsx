@@ -7,13 +7,15 @@ import { fmtDate, programLabel } from "./common";
 import { daysUntil } from "@/lib/format";
 import { richText, translator, tryTranslate, type Lang } from "@/lib/i18n";
 
-type Found = { institution: string; code: string; city: string; programType: string; intake: number; issuedAt: string | null; validUntil: string | null; sha256: string | null };
+type Found = { kind?: string; term?: string | null; institution: string; code: string; city: string; programType: string; intake: number; issuedAt: string | null; validUntil: string | null; sha256: string | null };
 
 export default function CertificateVerify({ no, found, lang = "en" }: { no: string; found: Found | null; lang?: Lang }) {
   const t = translator(lang);
   const valid = found && (daysUntil(found.validUntil) ?? -1) >= 0;
   const tone = found ? (valid ? { c: "#0d7a3d", bg: "#e9f7ef", bd: "#c9ecd8", icon: <CheckCircleFilled /> } : { c: "#a15c00", bg: "#fff7e6", bd: "#ffe1a8", icon: <ExclamationCircleFilled /> }) : { c: "#b4141f", bg: "#fff1f0", bd: "#ffccc7", icon: <CloseCircleFilled /> };
-  const title = found ? (valid ? t("cert.valid") : t("cert.expired")) : t("cert.none");
+  const acc = !!found?.kind && found.kind !== "NOC";
+  const what = t(acc ? "cert.whatAcc" : "cert.whatNoc");
+  const title = found ? (valid ? t("cert.valid", { what }) : t("cert.expired", { what })) : t("cert.none");
   return (
     <PublicFrame lang={lang} title={t("cert.title")} sub={t("cert.sub")}>
       <div style={{ maxWidth: 760, margin: "0 auto", background: "#fff", borderRadius: 20, border: "1px solid var(--line)", boxShadow: "var(--shadow-md)", overflow: "hidden" }}>
@@ -37,7 +39,15 @@ export default function CertificateVerify({ no, found, lang = "en" }: { no: stri
               <span>{found.city}</span>
               <span className="muted">{t("cert.program")}</span>
               <span>{lang === "ur" ? tryTranslate(lang, `prog.${found.programType}`, programLabel(found.programType)) : programLabel(found.programType)}</span>
-              <span className="muted">{t("cert.intake")}</span>
+              <span className="muted">{t("cert.kind")}</span>
+              <span>{t(acc ? (found.kind === "RENEWAL" ? "cert.kindRenewal" : "cert.kindAcc") : "cert.kindNoc")}</span>
+              {acc && found.term ? (
+                <>
+                  <span className="muted">{t("cert.term")}</span>
+                  <span><bdi>{found.term}</bdi></span>
+                </>
+              ) : null}
+              <span className="muted">{t(acc ? "cert.intakeAcc" : "cert.intake")}</span>
               <span>{t("cert.students", { n: found.intake })}</span>
               <span className="muted">{t("cert.issued")}</span>
               <span><bdi>{fmtDate(found.issuedAt)}</bdi></span>

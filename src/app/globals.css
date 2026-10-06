@@ -126,7 +126,7 @@ a > .pcp-stat:hover, .pcp-stat.clickable:hover { border-color: var(--brand-100);
 .ant-table-wrapper .ant-table-tbody > tr > td { font-size: 13.5px; }
 
 /* ---------- Workflow track (application header) ---------- */
-.pcp-track { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; margin-top: 18px; }
+.pcp-track { display: grid; grid-template-columns: repeat(var(--track-n, 7), 1fr); gap: 0; margin-top: 18px; }
 .pcp-track-step { position: relative; padding-top: 30px; text-align: center; font-size: 12px; color: var(--faint); }
 .pcp-track-step::before { content: ""; position: absolute; top: 11px; left: 0; right: 0; height: 3px; background: var(--line); }
 .pcp-track-step:first-child::before { left: 50%; }
@@ -140,6 +140,8 @@ a > .pcp-stat:hover, .pcp-stat.clickable:hover { border-color: var(--brand-100);
 .pcp-track-step.alert .pcp-track-dot { border-color: var(--warn); color: var(--warn); box-shadow: 0 0 0 4px var(--warn-50); }
 .pcp-track-step.error .pcp-track-dot { border-color: var(--bad); color: var(--bad); box-shadow: 0 0 0 4px var(--bad-50); }
 .pcp-track-step.done, .pcp-track-step.current { color: var(--ink-2); font-weight: 500; }
+
+.queue-overdue > td { background: #fff8f7 !important; }
 
 .pcp-court { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 12px; border: 1px solid; }
 .pcp-court-title { font-weight: 600; font-size: 14px; }

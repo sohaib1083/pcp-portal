@@ -22,8 +22,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     } else if (can(user.roles, "pcp.documents.view")) {
       allowed = true;
     } else if (user.roles.includes("pcp_inspector")) {
-      const assigned = await db.query.inspections.findFirst({ where: and(eq(schema.inspections.institutionId, doc.institutionId), eq(schema.inspections.inspector, user.username)) });
-      allowed = !!assigned;
+      // Lead or member of an inspection team for this institution.
+      const assigned = await db
+        .select({ id: schema.inspections.id })
+        .from(schema.inspections)
+        .innerJoin(schema.inspectionTeam, eq(schema.inspectionTeam.inspectionId, schema.inspections.id))
+        .where(and(eq(schema.inspections.institutionId, doc.institutionId), eq(schema.inspectionTeam.username, user.username)))
+        .limit(1);
+      const lead = await db.query.inspections.findFirst({ where: and(eq(schema.inspections.institutionId, doc.institutionId), eq(schema.inspections.inspector, user.username)) });
+      allowed = assigned.length > 0 || !!lead;
     }
   } else if (doc.onboardingId) {
     const req = await db.query.onboardingRequests.findFirst({ where: eq(schema.onboardingRequests.id, doc.onboardingId) });

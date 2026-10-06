@@ -4,9 +4,10 @@ import { Button, Space } from "antd";
 import { ArrowLeftOutlined, FilePdfOutlined, PrinterOutlined } from "@ant-design/icons";
 import { Logo, fmtDate } from "./common";
 
-type C = { no: string; institution: string; code: string; city: string; province: string; program: string; intake: number; issuedAt: string | null; validUntil: string | null; note: string | null; qr: string; verifyUrl: string; pdfId: number | null; back: string };
+type C = { no: string; kind?: string; term?: string | null; institution: string; code: string; city: string; province: string; program: string; intake: number; issuedAt: string | null; validUntil: string | null; note: string | null; qr: string; verifyUrl: string; pdfId: number | null; back: string };
 
 export default function CertificatePrint({ c }: { c: C }) {
+  const acc = !!c.kind && c.kind !== "NOC";
   return (
     <div style={{ background: "linear-gradient(180deg,#0a3d2e 0,#0a3d2e 220px,#eef2f0 220px)", minHeight: "100vh", padding: 24 }}>
       <Space className="no-print" style={{ marginBottom: 16 }}>
@@ -19,12 +20,18 @@ export default function CertificatePrint({ c }: { c: C }) {
           <Logo size={54} variant="dark" />
         </div>
         <div style={{ textAlign: "center", color: "#0b6e4f", fontSize: 26, fontWeight: 700, letterSpacing: 1 }}>PHARMACY COUNCIL OF PAKISTAN</div>
-        <div style={{ textAlign: "center", color: "#b00", fontSize: 12, marginTop: 4 }}>DEMO CERTIFICATE · fictional data · not a real NOC</div>
-        <div style={{ textAlign: "center", fontSize: 30, margin: "28px 0 8px" }}>No Objection Certificate</div>
+        <div style={{ textAlign: "center", color: "#b00", fontSize: 12, marginTop: 4 }}>DEMO CERTIFICATE · fictional data · not a real {acc ? "accreditation" : "NOC"}</div>
+        <div style={{ textAlign: "center", fontSize: 30, margin: "28px 0 8px" }}>{acc ? "Accreditation Certificate" : "No Objection Certificate"}</div>
         <div style={{ textAlign: "center", fontFamily: "monospace", fontSize: 15 }}>{c.no}</div>
-        <p style={{ fontSize: 17, lineHeight: 1.7, marginTop: 28 }}>
-          This is to certify that the Pharmacy Council of Pakistan has <b>no objection</b> to <b>{c.institution}</b> ({c.code}), {c.city}, {c.province}, offering the <b>{c.program}</b> program with an approved annual intake of <b>{c.intake}</b> students.
-        </p>
+        {acc ? (
+          <p style={{ fontSize: 17, lineHeight: 1.7, marginTop: 28 }}>
+            This is to certify that the <b>{c.program}</b> programme of <b>{c.institution}</b> ({c.code}), {c.city}, {c.province}, is <b>accredited</b> by the Pharmacy Council of Pakistan{c.term ? <> for the term <b>{c.term}</b></> : null} with an annual intake of <b>{c.intake}</b> students.
+          </p>
+        ) : (
+          <p style={{ fontSize: 17, lineHeight: 1.7, marginTop: 28 }}>
+            This is to certify that the Pharmacy Council of Pakistan has <b>no objection</b> to <b>{c.institution}</b> ({c.code}), {c.city}, {c.province}, offering the <b>{c.program}</b> program with an approved annual intake of <b>{c.intake}</b> students.
+          </p>
+        )}
         {c.note ? <p style={{ fontSize: 14, color: "#444" }}>Council note: {c.note}</p> : null}
         <table style={{ fontSize: 15, marginTop: 12 }}>
           <tbody>

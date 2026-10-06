@@ -372,6 +372,7 @@ export type ApplicationData = {
   libraryJournals?: number;
   buildingAreaSqft?: number;
   notes?: string;
+  complianceConfirmed?: boolean; // renewal: the institution confirms annual compliance for the current term
 };
 
 export type CheckResult = { key: string; label: string; ok: boolean; detail: string };
