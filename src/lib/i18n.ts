@@ -19,6 +19,7 @@ const D = {
   "lang.switchLabel": { en: "اردو میں دیکھیں (View in Urdu)", ur: "View in English (انگریزی میں دیکھیں)" },
   "foot.demo": { en: "PCP Digital Portal · working demo with fictional institutions, people and payments", ur: "پی سی پی ڈیجیٹل پورٹل · فرضی اداروں، افراد اور ادائیگیوں کے ساتھ ایک ورکنگ ڈیمو" },
   "foot.official": { en: "Not an official Pharmacy Council of Pakistan website · no SMS or email is sent", ur: "یہ فارمیسی کونسل آف پاکستان کی سرکاری ویب سائٹ نہیں · کوئی ایس ایم ایس یا ای میل نہیں بھیجی جاتی" },
+  "foot.privacy": { en: "Privacy notice", ur: "رازداری کا نوٹس" },
 
   // ---------- Home ----------
   "home.kicker": { en: "The four promised e-services, live on one platform", ur: "چاروں وعدہ شدہ ای سروسز، ایک ہی پلیٹ فارم پر فعال" },
@@ -198,6 +199,145 @@ const D = {
   "cert.compare": { en: "Compare the fingerprint with the PDF you were given: any edit to the file changes it.", ur: "اپنے پاس موجود پی ڈی ایف سے فنگر پرنٹ کا موازنہ کریں: فائل میں کوئی بھی تبدیلی اسے بدل دیتی ہے۔" },
   "cert.forged": { en: "{no} was not issued by PCP. The document may be forged; report it to PCP.", ur: "{no} پی سی پی نے جاری نہیں کیا۔ یہ دستاویز جعلی ہو سکتی ہے؛ پی سی پی کو اطلاع دیں۔" },
   "cert.searchInstead": { en: "Search institutions instead", ur: "اس کے بجائے ادارے تلاش کریں" },
+
+  // ---------- Privacy notice (guide section 14: approved by the Council before the public search goes live) ----------
+  "verify.privacy": { en: "What this search shows, and what it never shows: read the privacy notice", ur: "یہ تلاش کیا دکھاتی ہے اور کیا کبھی نہیں دکھاتی: رازداری کا نوٹس پڑھیں" },
+  "privacy.title": { en: "Privacy notice", ur: "رازداری کا نوٹس" },
+  "privacy.sub": {
+    en: "What the PCP Digital Portal holds about you, what the public can see, who else can see it, how long it is kept, and how to correct it.",
+    ur: "پی سی پی ڈیجیٹل پورٹل آپ کے بارے میں کیا معلومات رکھتا ہے، عوام کیا دیکھ سکتے ہیں، اور کون دیکھ سکتا ہے، معلومات کب تک رکھی جاتی ہیں، اور انہیں کیسے درست کرایا جائے۔",
+  },
+  "privacy.draft": { en: "Draft for Council approval", ur: "کونسل کی منظوری کے لیے مسودہ" },
+  "privacy.draftBody": {
+    en: "The Pharmacy Council approves this notice before the public search goes live. Until then it is a draft and may change.",
+    ur: "پبلک سرچ شروع ہونے سے پہلے فارمیسی کونسل اس نوٹس کی منظوری دے گی۔ تب تک یہ ایک مسودہ ہے اور اس میں تبدیلی ہو سکتی ہے۔",
+  },
+  "privacy.version": { en: "Draft version 0.1 · prepared {date}", ur: "مسودہ ورژن 0.1 · تیاری {date}" },
+  "privacy.onThisPage": { en: "On this page", ur: "اس صفحے پر" },
+
+  "privacy.holds.h": { en: "What the portal holds", ur: "پورٹل میں کون سی معلومات ہیں" },
+  "privacy.holds.inst": {
+    en: "Institutions: name, PCP ID, campuses, programmes, NOC and accreditation decisions, and the documents they file.",
+    ur: "ادارے: نام، پی سی پی آئی ڈی، کیمپس، پروگرام، این او سی اور ایکریڈیٹیشن کے فیصلے، اور ان کی جمع کرائی گئی دستاویزات۔",
+  },
+  "privacy.holds.faculty": {
+    en: "Faculty: name, father's name, CNIC, qualifications, registration number and appointments.",
+    ur: "فیکلٹی: نام، والد کا نام، شناختی کارڈ نمبر، تعلیمی قابلیت، رجسٹریشن نمبر اور تقرریاں۔",
+  },
+  "privacy.holds.students": {
+    en: "Students: name, father's name, CNIC or B-Form, mobile, email, programme, session, results and graduation.",
+    ur: "طلبہ: نام، والد کا نام، شناختی کارڈ یا ب فارم نمبر، موبائل، ای میل، پروگرام، سیشن، نتائج اور گریجویشن۔",
+  },
+  "privacy.holds.pharmacists": {
+    en: "Pharmacists: PCP's index of the provincial registers: name, father's name, CNIC, university, registration number, status and validity. Contact details and practice place only when held.",
+    ur: "فارماسسٹ: صوبائی رجسٹروں کا پی سی پی اشاریہ: نام، والد کا نام، شناختی کارڈ نمبر، یونیورسٹی، رجسٹریشن نمبر، حیثیت اور مدت۔ رابطے کی تفصیلات اور جائے ملازمت صرف اگر دستیاب ہوں۔",
+  },
+  "privacy.holds.system": {
+    en: "Accounts, fee payments, the emails and SMS the portal sends, and an audit log of who viewed, changed, approved or downloaded a record.",
+    ur: "صارف اکاؤنٹس، فیس کی ادائیگیاں، پورٹل کی بھیجی گئی ای میلز اور ایس ایم ایس، اور ایک آڈٹ لاگ کہ کس نے کون سا ریکارڈ دیکھا، بدلا، منظور کیا یا ڈاؤن لوڈ کیا۔",
+  },
+  "privacy.holds.nadra": {
+    en: "Where an agreement allows it, a CNIC is checked with NADRA when a faculty member, student or pharmacist is registered. In this demo the NADRA check is simulated.",
+    ur: "جہاں معاہدہ اجازت دے، فیکلٹی، طالب علم یا فارماسسٹ کی رجسٹریشن پر شناختی کارڈ نمبر کی نادرا سے تصدیق کی جاتی ہے۔ اس ڈیمو میں نادرا کی یہ تصدیق فرضی ہے۔",
+  },
+
+  "privacy.public.h": { en: "What the public search shows", ur: "پبلک سرچ کیا دکھاتی ہے" },
+  "privacy.public.shows": { en: "Shows", ur: "دکھاتی ہے" },
+  "privacy.public.never": { en: "Never shows", ur: "کبھی نہیں دکھاتی" },
+  "privacy.public.inst": {
+    en: "Institutions: name, PCP ID, city, province, and each programme's NOC and accreditation status with its validity.",
+    ur: "ادارے: نام، پی سی پی آئی ڈی، شہر، صوبہ، اور ہر پروگرام کی این او سی اور ایکریڈیٹیشن کی حیثیت اور اس کی مدت۔",
+  },
+  "privacy.public.ph": {
+    en: "Pharmacists, by exact registration number only: name, registration number, category, status and validity.",
+    ur: "فارماسسٹ، صرف درست رجسٹریشن نمبر سے: نام، رجسٹریشن نمبر، کیٹیگری، حیثیت اور مدت۔",
+  },
+  "privacy.public.cert": {
+    en: "Certificates and receipts: whether a document PCP issued is genuine and still valid.",
+    ur: "سرٹیفکیٹ اور رسیدیں: کیا پی سی پی کی جاری کردہ دستاویز اصلی ہے اور اب بھی مؤثر ہے۔",
+  },
+  "privacy.public.neverList": {
+    en: "CNIC, phone number, email, home address, practice place, and faculty or student records.",
+    ur: "شناختی کارڈ نمبر، فون نمبر، ای میل، گھر کا پتا، جائے ملازمت، اور فیکلٹی یا طلبہ کے ریکارڈ۔",
+  },
+  "privacy.public.nobrowse": {
+    en: "The pharmacist check needs the exact registration number, so the register cannot be browsed or copied.",
+    ur: "فارماسسٹ کی جانچ کے لیے درست رجسٹریشن نمبر درکار ہے، اس لیے رجسٹر کو نہ تو کھنگالا جا سکتا ہے اور نہ ہی نقل کیا جا سکتا ہے۔",
+  },
+  "privacy.public.try": { en: "Try the public search", ur: "پبلک سرچ آزمائیں" },
+
+  "privacy.access.h": { en: "Who can see what", ur: "کون کیا دیکھ سکتا ہے" },
+  "privacy.access.inst": { en: "An institution sees only its own records, never another institution's.", ur: "ادارہ صرف اپنا ریکارڈ دیکھتا ہے، کسی دوسرے ادارے کا کبھی نہیں۔" },
+  "privacy.access.officer": {
+    en: "A PCP officer sees the cases assigned to their desk. The super administrator manages accounts but takes no case decisions.",
+    ur: "پی سی پی افسر صرف اپنے ذمے کے کیس دیکھتا ہے۔ سپر ایڈمنسٹریٹر اکاؤنٹس سنبھالتا ہے مگر کیسوں کے فیصلے نہیں کرتا۔",
+  },
+  "privacy.access.cnic": {
+    en: "CNICs are masked on screen, for example 17301-XXXXXXX-1, except for the officers authorised to verify identity.",
+    ur: "شناختی کارڈ نمبر اسکرین پر چھپائے جاتے ہیں، مثلاً 17301-XXXXXXX-1، سوائے ان افسران کے جو شناخت کی تصدیق کے مجاز ہیں۔",
+  },
+  "privacy.access.self": { en: "Students and pharmacists see their own record only.", ur: "طلبہ اور فارماسسٹ صرف اپنا ریکارڈ دیکھتے ہیں۔" },
+  "privacy.access.feed": {
+    en: "The Ministry and the provincial councils receive a read-only data feed without CNICs or contact details.",
+    ur: "وزارت اور صوبائی کونسلوں کو صرف پڑھنے کے لیے ڈیٹا فیڈ ملتی ہے، جس میں شناختی کارڈ نمبر یا رابطے کی تفصیلات شامل نہیں۔",
+  },
+  "privacy.access.review": {
+    en: "Every quarter the super administrator reviews who holds which role and removes access that is no longer needed.",
+    ur: "ہر سہ ماہی سپر ایڈمنسٹریٹر جائزہ لیتا ہے کہ کس کے پاس کون سا کردار ہے، اور غیر ضروری رسائی ختم کر دیتا ہے۔",
+  },
+
+  "privacy.keep.h": { en: "How long it is kept", ur: "معلومات کب تک رکھی جاتی ہیں" },
+  "privacy.keep.records": {
+    en: "Academic and regulatory records are kept: decided cases, registers, annual returns, documents, payments and the audit log.",
+    ur: "تعلیمی اور ریگولیٹری ریکارڈ محفوظ رکھے جاتے ہیں: فیصلہ شدہ کیس، رجسٹر، سالانہ گوشوارے، دستاویزات، ادائیگیاں اور آڈٹ لاگ۔",
+  },
+  "privacy.keep.drafts": { en: "A draft application nobody changed for {n} days is cleared.", ur: "جس درخواست کے مسودے میں {n} دن تک کوئی تبدیلی نہ ہو، اسے حذف کر دیا جاتا ہے۔" },
+  "privacy.keep.onboarding": { en: "An institution registration never submitted is cleared after {n} days.", ur: "ادارے کی وہ رجسٹریشن جو کبھی جمع نہ کرائی گئی ہو، {n} دن بعد حذف کر دی جاتی ہے۔" },
+  "privacy.keep.codes": { en: "One-time codes are deleted {n} day(s) after they expire.", ur: "یک وقتی کوڈ میعاد ختم ہونے کے {n} دن بعد حذف کر دیے جاتے ہیں۔" },
+  "privacy.keep.challans": { en: "An unpaid challan is cancelled after {n} days; the record itself is kept.", ur: "غیر ادا شدہ چالان {n} دن بعد منسوخ کر دیا جاتا ہے؛ اس کا ریکارڈ محفوظ رہتا ہے۔" },
+  "privacy.keep.rule": {
+    en: "These periods come from PCP's retention rule ({rule}) and are applied every night.",
+    ur: "یہ مدتیں پی سی پی کے ریٹینشن رول ({rule}) سے لی گئی ہیں اور ہر رات ان پر عمل ہوتا ہے۔",
+  },
+  "privacy.keep.version": { en: "version {v}", ur: "ورژن {v}" },
+  "privacy.keep.default": { en: "default values", ur: "طے شدہ اقدار" },
+
+  "privacy.security.h": { en: "How it is protected", ur: "معلومات کا تحفظ کیسے ہوتا ہے" },
+  "privacy.security.transit": {
+    en: "Encrypted in transit (HTTPS) and at rest (the database and the document store).",
+    ur: "منتقلی کے دوران (HTTPS) اور محفوظ حالت میں (ڈیٹا بیس اور دستاویزات کا ذخیرہ) خفیہ کاری۔",
+  },
+  "privacy.security.backup": { en: "Daily backups, a tested restore, and a disaster recovery site.", ur: "روزانہ بیک اپ، آزمودہ بحالی، اور ڈیزاسٹر ریکوری سائٹ۔" },
+  "privacy.security.otp": {
+    en: "Sign-in with a password, and a one-time code for every decision and payment. Sessions on shared office computers end when idle.",
+    ur: "پاس ورڈ سے سائن اِن، اور ہر فیصلے اور ادائیگی کے لیے یک وقتی کوڈ۔ دفتر کے مشترکہ کمپیوٹر پر غیر فعال رہنے پر سیشن ختم ہو جاتا ہے۔",
+  },
+  "privacy.security.audit": {
+    en: "Every view, change, approval and download is written to a tamper-evident audit log.",
+    ur: "ہر دیکھنے، تبدیلی، منظوری اور ڈاؤن لوڈ کا اندراج ایک ناقابلِ تحریف آڈٹ لاگ میں ہوتا ہے۔",
+  },
+
+  "privacy.correct.h": { en: "How to correct your data", ur: "اپنی معلومات کیسے درست کرائیں" },
+  "privacy.correct.inst": {
+    en: "Institutions correct faculty details with a change request, and locked student figures with a correction request, both inside the portal.",
+    ur: "ادارے فیکلٹی کی تفصیلات تبدیلی کی درخواست سے، اور مقفل طلبہ کے اعداد و شمار درستی کی درخواست سے درست کراتے ہیں، دونوں پورٹل کے اندر۔",
+  },
+  "privacy.correct.person": {
+    en: "Students and faculty: ask your institution, or tell PCP's help desk that a record is wrong.",
+    ur: "طلبہ اور فیکلٹی: اپنے ادارے سے کہیں، یا پی سی پی کے ہیلپ ڈیسک کو بتائیں کہ ریکارڈ غلط ہے۔",
+  },
+  "privacy.correct.pharmacist": {
+    en: "Pharmacists update their practice details from their own portal. Registration details are corrected by the provincial council that issued them.",
+    ur: "فارماسسٹ اپنے پورٹل سے جائے ملازمت کی تفصیلات اپ ڈیٹ کرتے ہیں۔ رجسٹریشن کی تفصیلات وہی صوبائی کونسل درست کرتی ہے جس نے انہیں جاری کیا۔",
+  },
+  "privacy.correct.cta": { en: "Report a wrong record", ur: "غلط ریکارڈ کی اطلاع دیں" },
+
+  "privacy.contact.h": { en: "Contact", ur: "رابطہ" },
+  "privacy.contact.body": {
+    en: "Questions about this notice or your data go to PCP's data protection contact (demo address privacy@demo.pcp.local) or to the help desk. You get a reference number and an answer within 5 working days.",
+    ur: "اس نوٹس یا اپنی معلومات کے بارے میں سوالات پی سی پی کے ڈیٹا پروٹیکشن رابطے (ڈیمو پتا privacy@demo.pcp.local) یا ہیلپ ڈیسک کو بھیجیں۔ آپ کو ایک حوالہ نمبر ملے گا اور ۵ کاروباری دنوں میں جواب۔",
+  },
+  "privacy.contact.help": { en: "Open the help desk", ur: "ہیلپ ڈیسک کھولیں" },
 } as const satisfies Record<string, { en: string; ur: string }>;
 
 export type I18nKey = keyof typeof D;

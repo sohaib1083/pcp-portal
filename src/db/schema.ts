@@ -387,6 +387,8 @@ export type ChecklistItem = {
   criterion: string;
   result: "COMPLIANT" | "PARTIAL" | "NON_COMPLIANT" | "NA";
   remarks: string;
+  /** Photos and documents for this line, filed under the case's inspection folder. */
+  evidence?: { id: number; name: string }[];
 };
 
 // Module tables, one file per module (see src/db/modules/).
@@ -397,3 +399,4 @@ export * from "./modules/students";
 export * from "./modules/pharmacists";
 export * from "./modules/council";
 export * from "./modules/accounts";
+export * from "./modules/identity";

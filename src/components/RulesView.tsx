@@ -16,7 +16,25 @@ const CATEGORY: [test: (k: string) => boolean, label: string, color: string][] =
   [(k) => k === "fees", "Fees", "gold"],
   [(k) => k.startsWith("ref."), "Reference list", "green"],
   [(k) => k.startsWith("onboarding."), "Onboarding", "purple"],
+  [(k) => k.startsWith("retention."), "Retention", "volcano"],
+  [(k) => k.startsWith("kpi.") || k.startsWith("annual."), "Measures and deadlines", "cyan"],
 ];
+
+// Rules held as a few named numbers: edited as a form, not as JSON.
+const NUMBER_FIELDS: Record<string, [string, string, string][]> = {
+  "retention.policy": [
+    ["draftApplicationDays", "Clear a draft application nobody changed for", "days"],
+    ["onboardingDraftDays", "Clear an onboarding draft never submitted, after", "days"],
+    ["expiredCodeDays", "Delete a one-time code this long after it expires", "days"],
+    ["unpaidChallanDays", "Cancel (not delete) an unpaid challan after", "days"],
+  ],
+  "kpi.targets": [
+    ["nocDecisionDays", "Decide an NOC within", "days"],
+    ["accreditationDecisionDays", "Decide an accreditation or renewal within", "days"],
+    ["deficiencySharePct", "Cases returned for deficiency: under", "%"],
+    ["onTimeSharePct", "Institutions filing the annual return on time: at least", "%"],
+  ],
+};
 const category = (k: string) => CATEGORY.find(([t]) => t(k)) ?? [() => true, "Other", "default"];
 
 const NOC_FIELDS: [string, string, string][] = [
@@ -39,6 +57,15 @@ const isStringList = (v: unknown): v is string[] => Array.isArray(v) && v.every(
 function summary(key: string, v: unknown): string {
   if (isStringList(v)) return `${v.length} entr${v.length === 1 ? "y" : "ies"}: ${v.slice(0, 3).join(", ")}${v.length > 3 ? ", …" : ""}`;
   if (key === "fees" && v && typeof v === "object") return Object.entries(v as Record<string, number>).slice(0, 2).map(([k, x]) => `${feeLabel(k)} ${formatPKR(x)}`).join(" · ") + (Object.keys(v).length > 2 ? " · …" : "");
+  if (key === "retention.policy" && v && typeof v === "object") {
+    const r = v as Record<string, number>;
+    return `Drafts ${r.draftApplicationDays} days · onboarding drafts ${r.onboardingDraftDays} days · codes ${r.expiredCodeDays} day after expiry · unpaid challans ${r.unpaidChallanDays} days`;
+  }
+  if (key === "kpi.targets" && v && typeof v === "object") {
+    const r = v as Record<string, number>;
+    return `NOC within ${r.nocDecisionDays} days · accreditation within ${r.accreditationDecisionDays} days · deficiency under ${r.deficiencySharePct}% · on time at least ${r.onTimeSharePct}%`;
+  }
+  if (typeof v === "string") return v;
   if (key.startsWith("noc.") && v && typeof v === "object") {
     const r = v as Record<string, number>;
     return `Intake ≤ ${r.maxIntake} · 1 faculty per ${r.studentsPerFaculty} · ${r.minLabs} labs · ${r.minLibraryBooks} books`;
@@ -70,7 +97,8 @@ function Editor({ rule, onSaved }: { rule: Rule; onSaved: () => void }) {
   const [pending, start] = useTransition();
   const current = rule.versions[0];
   const v = current.value;
-  const mode = rule.key.startsWith("noc.") ? "noc" : rule.key === "fees" ? "fees" : isStringList(v) ? "list" : "json";
+  const mode = rule.key.startsWith("noc.") ? "noc" : rule.key === "fees" ? "fees" : NUMBER_FIELDS[rule.key] ? "numbers" : typeof v === "string" ? "text" : isStringList(v) ? "list" : "json";
+  const [text, setText] = useState(typeof v === "string" ? v : "");
   const [note, setNote] = useState("");
   const [listText, setListText] = useState(isStringList(v) ? v.join("\n") : "");
   const [json, setJson] = useState(JSON.stringify(v, null, 2));
@@ -98,10 +126,11 @@ function Editor({ rule, onSaved }: { rule: Rule; onSaved: () => void }) {
     });
 
   const submit = async () => {
-    if (mode === "noc" || mode === "fees") {
+    if (mode === "noc" || mode === "fees" || mode === "numbers") {
       const values = await form.validateFields();
       save(mode === "noc" ? { ...values, requiredDocs: (values.requiredDocs as string[]).map((x) => x.trim()).filter(Boolean) } : values);
-    } else if (mode === "list") save(listText.split("\n").map((x) => x.trim()).filter(Boolean));
+    } else if (mode === "text") save(text.trim());
+    else if (mode === "list") save(listText.split("\n").map((x) => x.trim()).filter(Boolean));
     else if (!jsonError) save(JSON.parse(json));
   };
 
@@ -141,6 +170,19 @@ function Editor({ rule, onSaved }: { rule: Rule; onSaved: () => void }) {
             ))}
           </Row>
         </Form>
+      ) : mode === "numbers" ? (
+        <Form form={form} layout="vertical" initialValues={v as object} requiredMark="optional">
+          {NUMBER_FIELDS[rule.key].map(([name, label, unit]) => (
+            <Form.Item key={name} name={name} label={label} rules={[{ required: true, message: "Enter a number" }]}>
+              <InputNumber min={0} style={{ width: "100%" }} suffix={<span className="faint" style={{ fontSize: 12 }}>{unit}</span>} />
+            </Form.Item>
+          ))}
+        </Form>
+      ) : mode === "text" ? (
+        <div style={{ marginBottom: 16 }}>
+          <b style={{ display: "block", marginBottom: 6 }}>Value</b>
+          <Input id="rule-text" value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. 31 October" />
+        </div>
       ) : mode === "list" ? (
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>

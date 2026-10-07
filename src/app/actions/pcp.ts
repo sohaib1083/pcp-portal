@@ -275,7 +275,16 @@ export async function withdrawConflict(id: number) {
 }
 
 const ChecklistInput = z.object({
-  items: z.array(z.object({ criterion: z.string(), result: z.enum(["COMPLIANT", "PARTIAL", "NON_COMPLIANT", "NA"]), remarks: z.string().default("") })).min(1),
+  items: z
+    .array(
+      z.object({
+        criterion: z.string(),
+        result: z.enum(["COMPLIANT", "PARTIAL", "NON_COMPLIANT", "NA"]),
+        remarks: z.string().default(""),
+        evidence: z.array(z.object({ id: z.number().int(), name: z.string().max(200) })).max(20).default([]),
+      }),
+    )
+    .min(1),
   summary: z.string().min(5),
 });
 
@@ -291,6 +300,13 @@ export async function submitInspection(inspectionId: number, raw: unknown) {
     if (!app || !inst) throw new Error("Not found");
     assertTransition(app.status, "INSPECTION_SUBMITTED", user.roles);
     const v = ChecklistInput.parse(raw);
+    // Evidence must be this case's own inspection files (sent from the tablet just before).
+    const evidenceIds = v.items.flatMap((i) => i.evidence.map((e) => e.id));
+    if (evidenceIds.length) {
+      const docs = await db.select({ id: schema.documents.id, applicationId: schema.documents.applicationId, folder: schema.documents.folder }).from(schema.documents).where(inArray(schema.documents.id, evidenceIds));
+      const ok = new Set(docs.filter((d) => d.applicationId === app.id && d.folder.includes(`inspection-reports/${app.ref}/evidence`)).map((d) => d.id));
+      if (evidenceIds.some((id) => !ok.has(id))) throw new Error("A photo or document does not belong to this inspection. Remove it and attach it again.");
+    }
     const team = await db.select().from(schema.inspectionTeam).where(eq(schema.inspectionTeam.inspectionId, insp.id));
     const { PDFDocument, StandardFonts } = await import("pdf-lib");
     const pdf = await PDFDocument.create();
@@ -299,7 +315,7 @@ export async function submitInspection(inspectionId: number, raw: unknown) {
     page.drawText(`Inspection report - ${app.ref} (DEMO)`, { x: 40, y: 790, size: 16, font });
     page.drawText(`${inst.name} - inspected ${insp.scheduledFor}`, { x: 40, y: 768, size: 11, font });
     page.drawText(`Team: ${[insp.inspector, ...team.filter((t) => t.username !== insp.inspector).map((t) => t.username)].join(", ")} (lead first)`.slice(0, 100), { x: 40, y: 750, size: 9, font });
-    v.items.forEach((it, i) => page.drawText(`${it.result.padEnd(14)} ${it.criterion}`.slice(0, 95), { x: 40, y: 720 - i * 18, size: 10, font }));
+    v.items.forEach((it, i) => page.drawText(`${it.result.padEnd(14)} ${it.criterion}${it.evidence.length ? ` (${it.evidence.length} file${it.evidence.length === 1 ? "" : "s"})` : ""}`.slice(0, 95), { x: 40, y: 720 - i * 18, size: 10, font }));
     page.drawText(`Summary: ${v.summary}`.slice(0, 110), { x: 40, y: 560, size: 10, font });
     const bytes = Buffer.from(await pdf.save());
     await db.transaction(async (tx) => {
@@ -307,7 +323,7 @@ export async function submitInspection(inspectionId: number, raw: unknown) {
       await fileDocument(tx, { institutionId: inst.id, folder: `inspection-reports/${app.ref}`, docType: "Inspection report", fileName: "inspection-report.pdf", bytes, applicationId: app.id, uploadedBy: user.username });
       await move(tx, app, "INSPECTION_SUBMITTED", user, "Digital checklist submitted");
       await notify(tx, app.assignedOfficer ? `user:${app.assignedOfficer}` : "role:pcp_officer", `Inspection report: ${app.ref}`, `${inst.shortCode} inspection submitted by ${user.name}.`, `/pcp/applications/${app.ref}`);
-      await audit(tx, { actor: user.username, action: "inspection.submitted", entity: "application", entityId: app.ref, details: { results: v.items.map((i) => i.result) } });
+      await audit(tx, { actor: user.username, action: "inspection.submitted", entity: "application", entityId: app.ref, details: { results: v.items.map((i) => i.result), evidence: evidenceIds.length } });
     });
     revalidatePath("/pcp/inspections");
     return done(app.ref, "Inspection report submitted.");

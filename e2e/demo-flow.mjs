@@ -230,10 +230,20 @@ try {
   ({ ctx, page } = await login("pcp.inspector"));
   await page.locator("tr", { hasText: ref }).getByRole("button", { name: "Open checklist" }).click();
   await page.waitForURL(/\/pcp\/inspections\/\d+/);
+  await page.waitForLoadState("networkidle");
+  // A photo on the first line, then the connection drops on site: the report queues on the tablet.
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+  await page.locator("input[type=file]").first().setInputFiles({ name: "lab-photo.png", mimeType: "image/png", buffer: png });
+  await page.getByTestId("line-evidence").first().getByText("lab-photo.png").waitFor({ timeout: T });
   await page.getByPlaceholder("Overall finding and recommendation to PCP").fill("Adequate for intake 60; recommend approval.");
+  await page.getByTestId("saved-at").waitFor({ timeout: T });
+  await ctx.setOffline(true);
   await page.getByRole("button", { name: "Submit inspection report" }).click();
-  await page.waitForURL(new RegExp(`/pcp/applications/${ref}`));
-  log("inspection submitted");
+  await page.getByRole("button", { name: "Queued on this tablet" }).waitFor({ timeout: T });
+  log("offline →", (await page.getByTestId("offline-status").locator(".ant-alert-title").innerText()).trim());
+  await ctx.setOffline(false);
+  await page.waitForURL(new RegExp(`/pcp/applications/${ref}`), { timeout: 60000 });
+  log("inspection submitted when the connection returned, with its photo");
   await ctx.close();
 
   // 10. Officer forwards; Secretary decides (one-time code), the letter is filed; certificate issued (one-time code)

@@ -73,6 +73,7 @@ export function PublicFooter() {
         <span className="pub-foot-links">
           <Link href="/help">{t("nav.help")}</Link>
           <Link href="/register">{t("nav.register")}</Link>
+          <Link href="/privacy" data-testid="footer-privacy">{t("foot.privacy")}</Link>
         </span>
         <span>{t("foot.official")}</span>
       </div>

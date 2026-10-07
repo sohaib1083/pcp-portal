@@ -7,6 +7,7 @@ import seedStudents from "./students";
 import seedPharmacists from "./pharmacists";
 import seedCouncil from "./council";
 import seedAccounts from "./accounts";
+import seedGaps from "./gaps";
 
 export async function seedModules() {
   for (const [name, fn] of [
@@ -17,6 +18,7 @@ export async function seedModules() {
     ["pharmacists", seedPharmacists],
     ["council", seedCouncil],
     ["accounts", seedAccounts],
+    ["gaps", seedGaps],
   ] as const) {
     const note = await fn();
     console.log(`  module ${name}: ${note ?? "nothing to seed"}`);

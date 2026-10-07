@@ -198,3 +198,43 @@ export async function leaveAllGroups(username: string) {
   const groups = (await (await kc(`/users/${id}/groups`)).json()) as { id: string }[];
   for (const g of groups) await kc(`/users/${id}/groups/${g.id}`, { method: "DELETE" });
 }
+
+// ---------- Quarterly access review (guide section 14): who holds which role, in a few calls ----------
+
+export type KcUserFull = KcUser & { firstName?: string; lastName?: string; createdTimestamp?: number };
+
+/** Every account in the realm with its name and email. */
+export async function listUsersFull(): Promise<KcUserFull[]> {
+  const res = await kc(`/users?max=1000`);
+  return (await res.json()) as KcUserFull[];
+}
+
+/** username -> the given realm roles they hold (one call per role, not one per user). Unknown roles are skipped. */
+export async function realmRoleMembers(roleNames: string[]): Promise<Record<string, string[]>> {
+  const out: Record<string, string[]> = {};
+  await Promise.all(
+    roleNames.map(async (role) => {
+      try {
+        const users = (await (await kc(`/roles/${encodeURIComponent(role)}/users?first=0&max=1000`)).json()) as KcUser[];
+        for (const u of users) (out[u.username] ??= []).push(role);
+      } catch {
+        /* the realm does not have this role */
+      }
+    }),
+  );
+  return out;
+}
+
+/** username -> PCP-UNI code of the institution group they belong to. */
+export async function institutionGroupMembers(): Promise<Record<string, string>> {
+  const parent = await groupIdByPath("/institutions");
+  const children = (await (await kc(`/groups/${parent}/children?first=0&max=1000&briefRepresentation=true`)).json()) as { id: string; name: string }[];
+  const out: Record<string, string> = {};
+  await Promise.all(
+    children.map(async (g) => {
+      const members = (await (await kc(`/groups/${g.id}/members?first=0&max=1000&briefRepresentation=true`)).json()) as KcUser[];
+      for (const m of members) out[m.username] = g.name;
+    }),
+  );
+  return out;
+}

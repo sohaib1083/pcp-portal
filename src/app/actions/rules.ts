@@ -6,6 +6,7 @@ import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
+import { parseDeadline } from "@/lib/measures";
 import { requirePermission } from "@/lib/session";
 import type { ActionResult } from "./faculty";
 
@@ -19,6 +20,23 @@ const NocRule = z.object({
   minClassrooms: count("Minimum classrooms"),
   minLibraryBooks: count("Minimum library books"),
   requiredDocs: z.array(z.string().trim().min(3, "Each document name needs at least 3 characters")).min(1, "List at least one required document"),
+});
+
+// Retention schedule (guide section 14): days before temporary data is cleared.
+const RetentionRule = z.object({
+  draftApplicationDays: count("Days before an untouched draft application is cleared", 1).max(3650, "Keep the limit under 10 years"),
+  onboardingDraftDays: count("Days before an onboarding draft is cleared", 1).max(3650, "Keep the limit under 10 years"),
+  expiredCodeDays: count("Days after expiry before a one-time code is deleted", 1).max(365, "Keep codes at most a year"),
+  unpaidChallanDays: count("Days before an unpaid challan is cancelled", 1).max(365, "Cancel unpaid challans within a year"),
+});
+
+// Measures of success (guide section 14): targets shown next to each figure.
+const pctOf = (label: string) => count(label, 0).max(100, `${label} must be 100 or less`);
+const KpiRule = z.object({
+  nocDecisionDays: count("Days to decide an NOC", 1),
+  accreditationDecisionDays: count("Days to decide an accreditation", 1),
+  deficiencySharePct: pctOf("Share of cases returned for deficiency (%)"),
+  onTimeSharePct: pctOf("Share of annual returns on time (%)"),
 });
 
 const StringList = z
@@ -41,6 +59,13 @@ function canonical(v: unknown): string {
 /** Validate a proposed value against the shape the rule's consumers expect. */
 function validate(key: string, value: unknown, previous: unknown): unknown {
   if (key.startsWith("noc.")) return NocRule.parse(value);
+  if (key === "retention.policy") return RetentionRule.parse(value);
+  if (key === "kpi.targets") return KpiRule.parse(value);
+  if (key === "annual.returnDeadline") {
+    const d = parseDeadline(value);
+    if (!d) throw new Error('Write the deadline as a day and a month, for example "31 October".');
+    return d.label;
+  }
   if (key === "fees") {
     const prevKeys = Object.keys((previous as Record<string, number>) ?? {});
     const v = z.record(z.string(), count("Each fee")).parse(value);

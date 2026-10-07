@@ -2,12 +2,16 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, App, Badge, Button, Card, Col, Empty, Input, Modal, Row, Table, Tabs, Tag } from "antd";
-import { CheckOutlined, CloseOutlined, MergeCellsOutlined, SafetyCertificateOutlined, SplitCellsOutlined } from "@ant-design/icons";
+import { CheckOutlined, CloseOutlined, EditOutlined, MergeCellsOutlined, SafetyCertificateOutlined, SplitCellsOutlined } from "@ant-design/icons";
 import { decideFacultyChange } from "@/app/actions/faculty";
+import { resolveIdentityItem } from "@/app/actions/identity";
 import { resolveDuplicate, verifyFaculty } from "@/app/actions/pcp";
+import { ENTITY_LABELS, NADRA_RULE_TEXT, type IdentityBadge, type IdentityEntity } from "@/lib/identity-shared";
 import { CHANGE_KIND_LABELS } from "@/lib/registry-shared";
 import { Avatar, PageTitle, Pill, fmtDate, programLabel, timeAgo } from "./common";
+import NadraBadge, { NadraStatus } from "./NadraBadge";
 import { useOtp } from "./OtpConfirm";
+import ScreenGuide from "./ScreenGuide";
 import { ChangeLines, RegStatus, useBusy } from "./registry-ui";
 
 type Appointment = { inst: string; code: string; programType: string; status: string; startDate: string; endDate: string | null };
@@ -24,7 +28,34 @@ type Person = {
   status: string;
   institutions: string[];
   appointments?: Appointment[];
+  nadra?: IdentityBadge | null;
 };
+
+/** A NADRA check (simulated) that disagrees with PCP's record, waiting for (or resolved by) the verification desk. */
+export type NadraItem = {
+  id: number;
+  entityType: IdentityEntity;
+  entityId: number;
+  ref: string;
+  name: string;
+  fatherName: string;
+  cnic: string;
+  where: string;
+  status: string;
+  nadraName: string | null;
+  nameSent: string;
+  txnId: string;
+  checkedAt: string;
+  checkedBy: string;
+  source: string;
+  reviewStatus: string | null;
+  reviewOutcome: string | null;
+  reviewNote: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+};
+
+const SOURCE_LABEL: Record<string, string> = { REGISTRATION: "at registration", IMPORT: "on import", MANUAL: "on request", SEED: "in the first data load" };
 type Request = {
   id: number;
   ref: string;
@@ -87,6 +118,10 @@ function PersonCard({ p, label, other }: { p: Person; label: string; other: Pers
             </Tag>
           ))}
         </span>
+        <span className="muted">NADRA</span>
+        <span>
+          <NadraStatus badge={p.nadra} />
+        </span>
       </div>
     </div>
   );
@@ -128,7 +163,11 @@ export default function VerificationView({
   linkRequests,
   changeRequests,
   decided,
+  nadraOpen = [],
+  nadraResolved = [],
 }: {
+  nadraOpen?: NadraItem[];
+  nadraResolved?: NadraItem[];
   flags: { id: number; score: number; reason: string; record: Person; match: Person }[];
   pending: { id: number; pcpId: string; fullName: string; qualification: string; designation: string; inst: string; createdAt: string }[];
   canAct: boolean;
@@ -141,7 +180,17 @@ export default function VerificationView({
   const router = useRouter();
   const [busy, start] = useBusy();
   const { withOtp, otpModal } = useOtp();
-  const [active, setActive] = useState(tab && ["duplicates", "links", "changes", "decided"].includes(tab) ? tab : "duplicates");
+  const [active, setActive] = useState(tab && ["duplicates", "links", "changes", "decided", "nadra"].includes(tab) ? tab : "duplicates");
+  const [resolve, setResolve] = useState<{ item: NadraItem; outcome: "NAME_UPDATED" | "KEPT" } | null>(null);
+  const [resolveNote, setResolveNote] = useState("");
+  const confirmResolve = () =>
+    start(async () => {
+      if (!resolve) return;
+      const r = await resolveIdentityItem(resolve.item.id, resolve.outcome, resolveNote);
+      message[r.ok ? "success" : r.level === "warning" ? "warning" : "error"](r.message, 6);
+      if (r.ok) setResolve(null);
+      router.refresh();
+    });
   const [decide, setDecide] = useState<{ r: Request; approve: boolean } | null>(null);
   const [note, setNote] = useState("");
   const run = (fn: () => Promise<{ ok: boolean; message: string }>) =>
@@ -227,7 +276,23 @@ export default function VerificationView({
   return (
     <>
       {otpModal}
-      <PageTitle eyebrow="Casework" title="Data verification" sub="Possible duplicate people, new faculty records, link requests and changes to verified appointments. The system raises the signal; a person decides." />
+      <PageTitle
+        eyebrow="Casework"
+        title="Data verification"
+        sub="Possible duplicate people, new faculty records, link requests, changes to verified appointments and NADRA checks that disagree with PCP's records. The system raises the signal; a person decides."
+        extra={
+          <ScreenGuide
+            title="Data verification"
+            steps={[
+              "**Duplicates and new records**: compare the two people side by side, then decide whether they are the same person.",
+              "**Link requests** and **Change requests**: approve or reject with a one-time code; the institution is told.",
+              "**NADRA checks**: every new faculty member, student and imported pharmacist is checked with NADRA. A name difference or an unknown CNIC waits here until you resolve it with a note.",
+              NADRA_RULE_TEXT,
+            ]}
+            note="The NADRA check is simulated in this demo: no NADRA system is called."
+          />
+        }
+      />
       {!canAct ? <Alert type="info" showIcon style={{ marginBottom: 16 }} title="View only: decisions belong to the verification officer." /> : null}
       <Tabs
         activeKey={active}
@@ -273,8 +338,8 @@ export default function VerificationView({
                         <Button type="primary" icon={<SplitCellsOutlined />} loading={busy} onClick={() => run(() => resolveDuplicate(f.id, "DIFFERENT"))}>
                           Different people: clear flag
                         </Button>
-                        <span className="muted" style={{ fontSize: 12.5, marginLeft: "auto" }}>
-                          <SafetyCertificateOutlined /> In production a NADRA CNIC check settles most of these automatically.
+                        <span className="muted" style={{ fontSize: 12.5, marginLeft: "auto", maxWidth: 420 }}>
+                          <SafetyCertificateOutlined /> Both CNICs were checked with NADRA (simulated): see the NADRA line on each card. Two different CNICs that NADRA knows under these names are usually two different people.
                         </span>
                       </div>
                     ) : null}
@@ -343,6 +408,105 @@ export default function VerificationView({
             ),
           },
           {
+            key: "nadra",
+            label: label("NADRA checks", nadraOpen.length),
+            children: (
+              <>
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 14 }}
+                  title="CNICs are checked with NADRA when a faculty member or student is registered and when pharmacists are imported. Here are the ones where NADRA disagrees with PCP's record. Simulated NADRA check: no NADRA system is called in this demo."
+                />
+                {nadraOpen.length === 0 ? (
+                  <Card style={{ marginBottom: 16 }}>
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Every NADRA check matches PCP's records" />
+                  </Card>
+                ) : null}
+                {nadraOpen.map((n) => (
+                  <Card
+                    key={n.id}
+                    data-testid={`nadra-item-${n.ref}`}
+                    style={{ marginBottom: 14, borderColor: n.status === "NOT_FOUND" ? "#ffccc7" : "#ffe1a8" }}
+                    title={
+                      <span style={{ display: "inline-flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                        <Tag style={{ marginInlineEnd: 0 }}>{ENTITY_LABELS[n.entityType]}</Tag>
+                        <span className="mono" style={{ fontSize: 13 }}>{n.ref}</span>
+                        <span>{n.status === "NOT_FOUND" ? "CNIC not found at NADRA" : "Name differs at NADRA"}</span>
+                      </span>
+                    }
+                    extra={<span className="muted" style={{ fontSize: 12.5 }}>Checked {SOURCE_LABEL[n.source] ?? ""} · {timeAgo(n.checkedAt)}</span>}
+                  >
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+                      <div style={{ border: "1px solid var(--line)", borderRadius: 12, padding: 12 }}>
+                        <div className="faint" style={{ fontSize: 11.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>PCP&apos;s record</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "92px 1fr", rowGap: 6, fontSize: 13 }}>
+                          <span className="muted">Name</span>
+                          <b style={{ fontWeight: 600 }}>{n.name}</b>
+                          <span className="muted">Father</span>
+                          <span>{n.fatherName}</span>
+                          <span className="muted">CNIC</span>
+                          <span className="mono">{n.cnic}</span>
+                          <span className="muted">Where</span>
+                          <span>{n.where}</span>
+                        </div>
+                      </div>
+                      <div style={{ border: `1px solid ${n.status === "NOT_FOUND" ? "#ffccc7" : "#ffe1a8"}`, background: n.status === "NOT_FOUND" ? "#fffafa" : "#fffbf3", borderRadius: 12, padding: 12 }}>
+                        <div className="faint" style={{ fontSize: 11.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>NADRA (simulated)</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "92px 1fr", rowGap: 6, fontSize: 13 }}>
+                          <span className="muted">Name</span>
+                          {n.nadraName ? <b style={{ fontWeight: 600, color: "#a15c00" }}>{n.nadraName}</b> : <b style={{ fontWeight: 600, color: "#b4141f" }}>No record of this CNIC</b>}
+                          <span className="muted">Transaction</span>
+                          <span className="mono" style={{ fontSize: 12 }}>{n.txnId}</span>
+                          <span className="muted">Checked</span>
+                          <span>{fmtDate(n.checkedAt, true)} by {n.checkedBy}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
+                      {canAct ? (
+                        <>
+                          {n.status === "NAME_MISMATCH" ? (
+                            <Button type="primary" icon={<EditOutlined />} onClick={() => (setResolveNote(""), setResolve({ item: n, outcome: "NAME_UPDATED" }))}>
+                              Use NADRA&apos;s spelling
+                            </Button>
+                          ) : null}
+                          <Button icon={<CheckOutlined />} onClick={() => (setResolveNote(""), setResolve({ item: n, outcome: "KEPT" }))}>
+                            Keep the record as it is
+                          </Button>
+                        </>
+                      ) : null}
+                      <span style={{ marginLeft: "auto" }}>
+                        <NadraBadge
+                          entityType={n.entityType}
+                          entityId={n.entityId}
+                          badge={{ checkId: n.id, status: n.status as IdentityBadge["status"], nadraName: n.nadraName, nameSent: n.nameSent, txnId: n.txnId, checkedAt: n.checkedAt, checkedBy: n.checkedBy, reviewStatus: n.reviewStatus, reviewOutcome: n.reviewOutcome, reviewNote: n.reviewNote }}
+                          canCheck={canAct}
+                        />
+                      </span>
+                    </div>
+                  </Card>
+                ))}
+                <Card title={`Resolved (${nadraResolved.length})`} styles={{ body: { padding: 0 } }}>
+                  <Table
+                    rowKey="id"
+                    size="small"
+                    dataSource={nadraResolved}
+                    pagination={{ pageSize: 10, hideOnSinglePage: true }}
+                    locale={{ emptyText: "Nothing resolved yet" }}
+                    columns={[
+                      { title: "Record", render: (_, n) => <span>{n.name}<div className="faint" style={{ fontSize: 12 }}>{ENTITY_LABELS[n.entityType]} · <span className="mono">{n.ref}</span></div></span> },
+                      { title: "NADRA said", render: (_, n) => (n.status === "NOT_FOUND" ? "Not found" : `"${n.nadraName}" (record said "${n.nameSent}")`) },
+                      { title: "Decision", render: (_, n) => <RegStatus value={n.reviewOutcome === "NAME_UPDATED" ? "APPROVED" : "VERIFIED"} label={n.reviewOutcome === "NAME_UPDATED" ? "NADRA spelling applied" : "Record kept"} /> },
+                      { title: "Note", dataIndex: "reviewNote", render: (v) => <span style={{ fontSize: 12.5 }}>{v}</span> },
+                      { title: "By", render: (_, n) => <span style={{ fontSize: 12.5 }}>{n.reviewedBy}<div className="faint">{fmtDate(n.reviewedAt)}</div></span> },
+                    ]}
+                  />
+                </Card>
+              </>
+            ),
+          },
+          {
             key: "decided",
             label: "Decided",
             children: (
@@ -366,6 +530,29 @@ export default function VerificationView({
           },
         ]}
       />
+      <Modal
+        open={!!resolve}
+        title={resolve ? `${resolve.outcome === "NAME_UPDATED" ? "Use NADRA's spelling for" : "Keep"} ${resolve.item.ref}` : ""}
+        okText={resolve?.outcome === "NAME_UPDATED" ? "Update the name and resolve" : "Resolve, keep the record"}
+        confirmLoading={busy}
+        onCancel={() => setResolve(null)}
+        onOk={confirmResolve}
+        okButtonProps={{ disabled: resolveNote.trim().length < 5 }}
+        destroyOnHidden
+      >
+        <p style={{ marginTop: 0 }}>
+          {resolve?.outcome === "NAME_UPDATED"
+            ? `The record's name changes from "${resolve.item.name}" to "${resolve.item.nadraName}", as NADRA holds it. The change is kept in the record's history${resolve.item.entityType !== "pharmacist" ? " and the institution is told" : ""}.`
+            : `The record stays as it is. Say what you checked, for example the CNIC copy or a call to the person${resolve?.item.entityType !== "pharmacist" ? "; the institution sees your note" : ""}.`}
+        </p>
+        <Input.TextArea
+          rows={3}
+          value={resolveNote}
+          onChange={(e) => setResolveNote(e.target.value)}
+          placeholder={resolve?.outcome === "NAME_UPDATED" ? "Note (required), e.g. CNIC copy checked; NADRA spelling is correct" : "Note (required), e.g. CNIC copy checked: the CNIC was typed wrongly and the institution will correct it"}
+          aria-label="Resolution note"
+        />
+      </Modal>
       <Modal
         open={!!decide}
         title={decide ? `${decide.approve ? (decide.r.kind === "NEW_LINK" ? "Approve link" : "Approve") : decide.r.kind === "NEW_LINK" ? "Decline link" : "Reject"} ${decide.r.ref}` : ""}

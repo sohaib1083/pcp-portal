@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, inArray, isNotNull, lt, lte, ne, notInArray, sql } from "drizzle-orm";
 import ExecutiveDashboard, { type WorkItem } from "@/components/ExecutiveDashboard";
 import { db, schema } from "@/db";
+import { accessReviewTask } from "@/lib/access-review";
 import { runJobsIfStale } from "@/lib/scheduler";
 import { requirePermission } from "@/lib/session";
 import { iso } from "@/lib/util";
@@ -117,6 +118,7 @@ export default async function PcpDashboard() {
 
   return (
     <ExecutiveDashboard
+      adminTasks={[await accessReviewTask(user)].filter((t) => t !== null)}
       kpis={kpis}
       month={now.toISOString().slice(0, 7)}
       work={{

@@ -28,9 +28,12 @@ import {
   type FacultySearchResult,
   type FacultySuggestion,
 } from "@/app/actions/faculty";
+import { NADRA_RULE_TEXT, type IdentityBadge } from "@/lib/identity-shared";
 import { CHANGE_KIND_LABELS, DESIGNATIONS, QUALIFICATIONS, SPECIALIZATIONS } from "@/lib/registry-shared";
 import { Avatar, KV, PageTitle, Person, Pill, StatCard, fmtDate, programLabel } from "./common";
 import { DEMO } from "./demo-helpers";
+import NadraBadge, { NadraStatus } from "./NadraBadge";
+import ScreenGuide from "./ScreenGuide";
 import { ChangeLines, RegStatus, SectionLabel, useBusy } from "./registry-ui";
 
 type Row = {
@@ -51,6 +54,7 @@ type Row = {
   verificationStatus: string;
   verified: boolean;
   pendingChange: { ref: string; kind: string } | null;
+  nadra: IdentityBadge | null;
 };
 type History = {
   id: number;
@@ -73,6 +77,7 @@ const TRIES = [
   { label: "Try: active elsewhere", hint: "CNIC already active at another institution", values: { cnic: "35202-7654321-2", fullName: "Dr. Sara Malik", fatherName: "Javed Malik", programType: "TECH" } },
   { label: "Try: near-duplicate", hint: "New CNIC, but the name matches an existing person", values: { cnic: "17301-7777777-1", fullName: "Dr. Mohammad Ali Khan", fatherName: "Abdul Ghafoor Khan", programType: "TECH" } },
   { label: "Try: spelling variant", hint: "A free person in the registry, typed with a different spelling", values: { cnic: "17301-8888888-3", fullName: "Dr. Mohammad Yousaf Qureshi", fatherName: "Abdul Rauf Qureshi", programType: "PHARMD" } },
+  { label: "Try: NADRA spells it differently", hint: "A new person whose CNIC ends in 1111: the simulated NADRA check returns another spelling", values: { cnic: "17301-4561111-1", fullName: "Dr. Kashif Mehmood", fatherName: "Tariq Mehmood", programType: "TECH" } },
 ];
 
 const END_CATEGORIES = ["Transfer", "Resignation", "Retirement", "Contract ended", "Other"];
@@ -258,18 +263,32 @@ export default function FacultyView({
         title="Faculty"
         sub="Central PCP faculty registry: one record and one PCP-FAC ID per person, active at one institution at a time. Search the registry before adding anyone."
         extra={
-          canEdit ? (
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                setResult(null);
-                setOpen(true);
-              }}
-            >
-              Add faculty member
-            </Button>
-          ) : null
+          <>
+            <ScreenGuide
+              title="Faculty"
+              intro="One PCP record per person, checked against the registry and against NADRA before it counts towards any application."
+              steps={[
+                "**Search** the registry by PCP-FAC ID, CNIC or name first. Someone already in the registry is linked by ID, not added again.",
+                "**Add faculty member** creates a new person. On save the duplicate check runs, then the CNIC is checked with NADRA.",
+                NADRA_RULE_TEXT,
+                "A name difference or a CNIC NADRA does not know goes to PCP's verification officer, who resolves it with a note. The record shows the result as a badge.",
+                "Open a record and use **Check CNIC with NADRA** to run the check again, for example after a correction.",
+              ]}
+              note="The NADRA check is simulated in this demo: no NADRA system is called."
+            />
+            {canEdit ? (
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  setResult(null);
+                  setOpen(true);
+                }}
+              >
+                Add faculty member
+              </Button>
+            ) : null}
+          </>
         }
       />
       <Row gutter={[14, 14]} style={{ marginBottom: 18 }}>
@@ -431,7 +450,16 @@ export default function FacultyView({
               onFilter: (v, r) => r.programType === v,
               render: (v, r) => <span>{v}<div className="faint" style={{ fontSize: 12 }}>{programLabel(r.programType)}</div></span>,
             },
-            { title: "PCP verification", dataIndex: "verificationStatus", render: (v) => <Pill value={v} /> },
+            {
+              title: "PCP verification",
+              dataIndex: "verificationStatus",
+              render: (v, r) => (
+                <span style={{ display: "inline-flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+                  <Pill value={v} />
+                  <NadraStatus badge={r.nadra} short />
+                </span>
+              ),
+            },
             { title: "Appointment", render: (_, r) => <AppointmentStatus r={r} /> },
             {
               title: "",
@@ -464,7 +492,7 @@ export default function FacultyView({
           <div style={{ fontSize: 13, lineHeight: 1.55 }}>
             <b>Checks run when you save</b>
             <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
-              <li>CNIC is the key: one PCP record per person (a NADRA check plugs in here in production).</li>
+              <li>CNIC is the key: one PCP record per person. After saving, the CNIC and name are checked with NADRA (simulated in this demo: a CNIC ending in 0000 is not found, one ending in 1111 comes back with another spelling).</li>
               <li>A person already active at another institution is blocked; the other institution is not revealed.</li>
               <li>Registration number, and name plus father&apos;s name after normalisation (Muhammad / Mohammad, Umer / Umar …), are matched against the registry. A close match asks &ldquo;Did you mean …?&rdquo; before anything is created.</li>
             </ul>
@@ -729,6 +757,7 @@ function RecordDrawer({
               ["Designation", row.designation],
               ["Registration no.", row.pcpRegNo],
               ["PCP verification", <Pill key="v" value={row.verificationStatus} />],
+              ["NADRA check", <NadraBadge key={`n${row.facultyId}`} entityType="faculty" entityId={row.facultyId} badge={row.nadra} canCheck={canEdit && ["ACTIVE", "REQUESTED"].includes(row.linkStatus)} />],
             ]}
           />
 

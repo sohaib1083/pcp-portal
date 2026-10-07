@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import FacultyView from "@/components/FacultyView";
 import { db, schema } from "@/db";
+import { latestIdentity } from "@/lib/identity";
 import { maskCnic } from "@/lib/names";
 import { isVerifiedLink, thisYear } from "@/lib/registry";
 import { facultyUpdateDue } from "@/lib/registry-shared";
@@ -52,6 +53,7 @@ export default async function FacultyPage() {
     .orderBy(desc(schema.facultyAnnualConfirmations.year));
   const year = thisYear();
   const current = confirmations.find((c) => c.year === year);
+  const nadra = await latestIdentity("faculty", facultyIds);
 
   return (
     <FacultyView
@@ -65,6 +67,7 @@ export default async function FacultyPage() {
           cnic: maskCnic(r.cnic),
           verified: isVerifiedLink({ status: r.linkStatus }, r),
           pendingChange: pending ? { ref: pending.ref, kind: pending.kind } : null,
+          nadra: nadra[r.facultyId] ?? null,
         };
       })}
       history={history

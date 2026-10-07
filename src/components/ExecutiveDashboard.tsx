@@ -213,6 +213,7 @@ export default function ExecutiveDashboard(p: {
   pipeline: KV;
   renewals: { name: string; code: string; type: string; until: string }[];
   notifications: { id: number; title: string; body: string; link: string | null; createdAt: string }[];
+  adminTasks?: { text: string; link: string; due: string }[];
 }) {
   const k = p.kpis;
   const years = [...new Set(p.enrol.map((e) => e.year))];
@@ -241,6 +242,17 @@ export default function ExecutiveDashboard(p: {
         title="Dashboard"
         sub={`Your work first, then the registry: ${k.institutions} institutions, ${k.faculty} active faculty and ${k.students.toLocaleString()} current students, live from the central registry.`}
       />
+      {p.adminTasks?.length ? (
+        <Card size="small" title="Your tasks" style={{ marginBottom: 18 }} data-testid="admin-tasks">
+          {p.adminTasks.map((t) => (
+            <Link key={t.link} href={t.link} style={{ display: "flex", gap: 10, alignItems: "center", color: "inherit" }}>
+              <ClockCircleFilled style={{ color: "#e8a20c" }} />
+              <span style={{ flex: 1 }}>{t.text}</span>
+              <span className="muted" style={{ fontSize: 12.5 }}>by {t.due}</span>
+            </Link>
+          ))}
+        </Card>
+      ) : null}
 
       <MyWork work={p.work} />
 

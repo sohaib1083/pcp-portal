@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
+import { checkIdentities } from "@/lib/identity";
 import { createUser, findUser } from "@/lib/keycloak-admin";
 import { sendEmail, sendSms } from "@/lib/messages";
 import { requireOtp } from "@/lib/otp";
@@ -128,8 +129,11 @@ async function nextImportRef() {
   return `IMP-${year}-${String(n + 1).padStart(4, "0")}`;
 }
 
+/** The NADRA result for one imported row (simulated check), for the import report. */
+export type PharmacistNadraRow = { row: number; id: number; regNo: string; name: string; status: string; nadraName: string | null };
+
 /** Re-checks the file, then saves only the rows without errors. Rows with errors go back to the council. */
-export async function runImport(council: string, fileName: string, text: string): Promise<ActionResult & { ref?: string; imported?: number }> {
+export async function runImport(council: string, fileName: string, text: string): Promise<ActionResult & { ref?: string; imported?: number; nadra?: PharmacistNadraRow[] }> {
   const user = await requirePermission("pcp.pharmacists.manage");
   if (!isCouncil(council)) return { ok: false, level: "error", message: "Choose the council that sent the file." };
   const report = await checkImportFile(council, fileName.slice(0, 120), text);
@@ -138,6 +142,7 @@ export async function runImport(council: string, fileName: string, text: string)
   if (!good.length) return { ok: false, level: "error", message: "No row is ready to import. Fix the errors in the file and check it again." };
   const ref = await nextImportRef();
   const errors = report.rows.filter((r) => r.errors.length).map((r) => ({ row: r.row, regNo: r.regNo, errors: r.errors }));
+  let added: { id: number; regNo: string }[] = [];
   try {
     await db.transaction(async (tx) => {
       const [imp] = await tx.insert(schema.pharmacistImports).values({ ref, council, fileName: report.fileName, totalRows: report.total, importedRows: good.length, errorRows: errors.length, errors, importedBy: user.username }).returning();
@@ -145,6 +150,7 @@ export async function runImport(council: string, fileName: string, text: string)
         .insert(schema.pharmacists)
         .values(good.map((r) => ({ ...r.data!, importId: imp.id })))
         .returning({ id: schema.pharmacists.id, regNo: schema.pharmacists.regNo, status: schema.pharmacists.status });
+      added = inserted;
       await tx.insert(schema.pharmacistEvents).values(inserted.map((p) => ({ pharmacistId: p.id, kind: "IMPORTED", toStatus: p.status, note: `Loaded from the ${COUNCIL_INFO[council as Council].name} file ${report.fileName} (${ref}).`, actor: user.username })));
       await audit(tx, { actor: user.username, action: "pharmacist.import.completed", entity: "pharmacist_import", entityId: ref, details: { council, fileName: report.fileName, total: report.total, imported: inserted.length, errors: errors.length, regNos: inserted.map((p) => p.regNo).slice(0, 200) } });
       const errorLines = errors.slice(0, 20).map((e) => `Row ${e.row} (${e.regNo}): ${e.errors.join("; ")}`);
@@ -165,15 +171,31 @@ export async function runImport(council: string, fileName: string, text: string)
     if (/duplicate key/.test(msg)) return { ok: false, level: "error", message: "Another import added some of these numbers a moment ago. Check the file again." };
     throw e;
   }
+  // CNIC check against NADRA for every row added, in one batch (guide section 14). Simulated: see src/lib/nadra.ts.
+  const byReg = new Map(good.map((r) => [r.data!.regNo, r]));
+  const checked = await checkIdentities(
+    added.map((a) => {
+      const r = byReg.get(a.regNo)!;
+      return { entityType: "pharmacist" as const, entityId: a.id, ref: a.regNo, cnic: r.data!.cnic, name: r.data!.fullName, fatherName: r.data!.fatherName };
+    }),
+    "IMPORT",
+    user.username,
+    `import ${ref}`,
+  );
+  const nadra: PharmacistNadraRow[] = checked.map((c) => ({ row: byReg.get(c.subject.ref)?.row ?? 0, id: c.subject.entityId, regNo: c.subject.ref, name: c.subject.name, status: c.result.status, nadraName: c.result.nadraName })).sort((a, b) => a.row - b.row);
+  const differ = nadra.filter((x) => x.status !== "MATCH").length;
+  const nadraLine = ` Simulated NADRA check: ${nadra.length - differ} matched${differ ? `, ${differ} sent to the verification desk` : ""}.`;
   refresh();
   return {
     ok: true,
-    level: errors.length ? "warning" : "success",
+    level: errors.length || differ ? "warning" : "success",
     ref,
     imported: good.length,
-    message: errors.length
-      ? `${ref}: ${plural(good.length, "pharmacist")} added. ${plural(errors.length, "row")} with errors ${errors.length === 1 ? "was" : "were"} left out and sent back to the council.`
-      : `${ref}: all ${plural(good.length, "pharmacist")} added.`,
+    nadra,
+    message:
+      (errors.length
+        ? `${ref}: ${plural(good.length, "pharmacist")} added. ${plural(errors.length, "row")} with errors ${errors.length === 1 ? "was" : "were"} left out and sent back to the council.`
+        : `${ref}: all ${plural(good.length, "pharmacist")} added.`) + nadraLine,
   };
 }
 

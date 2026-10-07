@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import PharmacistRecord from "@/components/PharmacistRecord";
 import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
+import { latestIdentity } from "@/lib/identity";
 import { maskCnic } from "@/lib/names";
 import { can } from "@/lib/roles";
 import { requireUser } from "@/lib/session";
@@ -29,12 +30,14 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     db.select().from(schema.documents).where(eq(schema.documents.pharmacistId, id)).orderBy(desc(schema.documents.uploadedAt)),
     p.importId ? db.query.pharmacistImports.findFirst({ where: eq(schema.pharmacistImports.id, p.importId) }) : null,
   ]);
+  const nadra = (await latestIdentity("pharmacist", [p.id]))[p.id] ?? null;
   // Complete audit trail (guide section 14): who viewed a record, and whether they saw the full CNIC.
   await audit(db, { actor: user.username, action: "pharmacist.viewed", entity: "pharmacist", entityId: p.regNo, details: { cnicShown: canManage } });
 
   return (
     <PharmacistRecord
       canManage={canManage}
+      nadra={nadra}
       p={{
         id: p.id,
         regNo: p.regNo,

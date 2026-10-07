@@ -1,7 +1,9 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import VerificationView from "@/components/VerificationView";
 import { db, schema } from "@/db";
+import { latestIdentity } from "@/lib/identity";
+import type { NadraItem } from "@/components/VerificationView";
 import { maskCnic } from "@/lib/names";
 import { can } from "@/lib/roles";
 import { requireUser } from "@/lib/session";
@@ -34,6 +36,7 @@ export default async function VerificationPage({ searchParams }: { searchParams:
         .where(inArray(schema.facultyLinks.facultyId, ids))
     : [];
   const institutions = Object.fromEntries((await db.select({ id: schema.institutions.id, name: schema.institutions.name, code: schema.institutions.shortCode }).from(schema.institutions)).map((i) => [i.id, i]));
+  const facultyNadra = await latestIdentity("faculty", ids);
   const person = (id: number) => {
     const p = people.find((x) => x.id === id)!;
     const l = links.filter((x) => x.facultyId === id && x.status !== "WITHDRAWN");
@@ -49,6 +52,7 @@ export default async function VerificationPage({ searchParams }: { searchParams:
       designation: p.designation,
       pcpRegNo: p.pcpRegNo,
       status: p.verificationStatus,
+      nadra: facultyNadra[p.id] ?? null,
       institutions: l.map((x) => `${x.code} · ${x.programType} · ${x.status}`),
       appointments: l
         .sort((a, b) => (a.startDate < b.startDate ? 1 : -1))
@@ -89,8 +93,49 @@ export default async function VerificationPage({ searchParams }: { searchParams:
     };
   };
 
+  // NADRA checks (simulated) that disagree with PCP's record: open items, and the latest resolved ones.
+  const nadraRows = [
+    ...(await db.select().from(schema.identityChecks).where(eq(schema.identityChecks.reviewStatus, "OPEN")).orderBy(desc(schema.identityChecks.checkedAt))),
+    ...(await db
+      .select()
+      .from(schema.identityChecks)
+      .where(and(eq(schema.identityChecks.reviewStatus, "RESOLVED"), isNotNull(schema.identityChecks.reviewedAt), inArray(schema.identityChecks.reviewOutcome, ["NAME_UPDATED", "KEPT"])))
+      .orderBy(desc(schema.identityChecks.reviewedAt))
+      .limit(20)),
+  ];
+  const idsOf = (t: string) => [...new Set(nadraRows.filter((r) => r.entityType === t).map((r) => r.entityId))];
+  const [nFac, nStu, nPh] = await Promise.all([
+    idsOf("faculty").length ? db.select().from(schema.faculty).where(inArray(schema.faculty.id, idsOf("faculty"))) : [],
+    idsOf("student").length ? db.select().from(schema.students).where(inArray(schema.students.id, idsOf("student"))) : [],
+    idsOf("pharmacist").length ? db.select().from(schema.pharmacists).where(inArray(schema.pharmacists.id, idsOf("pharmacist"))) : [],
+  ]);
+  const nFacLinks = idsOf("faculty").length
+    ? await db.select({ facultyId: schema.facultyLinks.facultyId, institutionId: schema.facultyLinks.institutionId, status: schema.facultyLinks.status }).from(schema.facultyLinks).where(inArray(schema.facultyLinks.facultyId, idsOf("faculty")))
+    : [];
+  const nadraItem = (r: (typeof nadraRows)[number]): NadraItem | null => {
+    const base = { id: r.id, entityId: r.entityId, status: r.status, nadraName: r.nadraName, nameSent: r.nameSent, txnId: r.txnId, checkedAt: r.checkedAt.toISOString(), checkedBy: r.checkedBy, source: r.source, reviewStatus: r.reviewStatus, reviewOutcome: r.reviewOutcome, reviewNote: r.reviewNote, reviewedBy: r.reviewedBy, reviewedAt: r.reviewedAt?.toISOString() ?? null };
+    const cnic = canAct ? r.cnic : maskCnic(r.cnic);
+    if (r.entityType === "faculty") {
+      const f = nFac.find((x) => x.id === r.entityId);
+      if (!f) return null;
+      const l = nFacLinks.find((x) => x.facultyId === f.id && x.status === "ACTIVE") ?? nFacLinks.find((x) => x.facultyId === f.id);
+      return { ...base, entityType: "faculty", ref: f.pcpId, name: f.fullName, fatherName: f.fatherName, cnic, where: l ? `${institutions[l.institutionId]?.code ?? ""} · ${institutions[l.institutionId]?.name ?? ""}` : "No current appointment" };
+    }
+    if (r.entityType === "student") {
+      const st = nStu.find((x) => x.id === r.entityId);
+      if (!st) return null;
+      return { ...base, entityType: "student", ref: st.pcpId, name: st.fullName, fatherName: st.fatherName, cnic, where: `${institutions[st.institutionId]?.code ?? ""} · ${institutions[st.institutionId]?.name ?? ""}` };
+    }
+    const ph = nPh.find((x) => x.id === r.entityId);
+    if (!ph) return null;
+    return { ...base, entityType: "pharmacist", ref: ph.regNo, name: ph.fullName, fatherName: ph.fatherName, cnic, where: `${ph.council} register` };
+  };
+  const nadraItems = nadraRows.map(nadraItem).filter((x): x is NadraItem => !!x);
+
   return (
     <VerificationView
+      nadraOpen={nadraItems.filter((x) => x.reviewStatus === "OPEN")}
+      nadraResolved={nadraItems.filter((x) => x.reviewStatus === "RESOLVED")}
       canAct={canAct}
       tab={tab ?? null}
       flags={flags.map((f) => ({ id: f.id, score: f.score, reason: f.reason, record: person(f.recordId), match: person(f.matchRecordId) }))}

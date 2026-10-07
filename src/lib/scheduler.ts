@@ -2,16 +2,23 @@
 // src/instrumentation.ts, and also run (at most every few minutes) when the PCP dashboard loads.
 // Both jobs are idempotent, so running them more often than daily never sends a message twice.
 import { runRenewalAlerts } from "./renewals";
+import { runRetention } from "./retention";
 import { runSlaChecks } from "./sla";
 
 const DAY = 24 * 3600 * 1000;
-const g = globalThis as unknown as { __pcpScheduler?: ReturnType<typeof setInterval>; __pcpJobsAt?: number; __pcpJobsRunning?: Promise<unknown> | null };
+const g = globalThis as unknown as { __pcpScheduler?: ReturnType<typeof setInterval>; __pcpJobsAt?: number; __pcpJobsRunning?: Promise<unknown> | null; __pcpRetentionAt?: number };
 
 export async function runDailyJobs() {
   const renewals = await runRenewalAlerts();
   const sla = await runSlaChecks();
+  // The draft clean-up audits every run, so it runs once a day rather than on every dashboard load.
+  let retention = null;
+  if (Date.now() - (g.__pcpRetentionAt ?? 0) >= DAY) {
+    retention = await runRetention();
+    g.__pcpRetentionAt = Date.now();
+  }
   g.__pcpJobsAt = Date.now();
-  return { renewals, sla };
+  return { renewals, sla, retention };
 }
 
 /** Cheap to call on every dashboard load: runs only when the last run is older than `maxAgeMs`. */

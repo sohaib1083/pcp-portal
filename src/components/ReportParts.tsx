@@ -156,7 +156,16 @@ export function ReportChart({ chart, onDrill, height }: { chart: Chart; onDrill:
     axisTick: { show: false },
     axisLabel: { color: INK.text, fontSize: 11.5, interval: 0, ...(horizontal ? {} : { hideOverlap: false, width: 90, overflow: "break" as const }) },
   };
-  const val = { type: "value" as const, minInterval: 1, splitLine: { lineStyle: { color: INK.grid } }, axisLabel: { color: INK.axis, fontSize: 11 } };
+  const topTarget = Math.max(0, ...(chart.targets ?? []).map((t) => t.value));
+  const val = {
+    type: "value" as const,
+    minInterval: 1,
+    splitLine: { lineStyle: { color: INK.grid } },
+    axisLabel: { color: INK.axis, fontSize: 11 },
+    // keep a target line on the chart even when every bar is below it
+    ...(topTarget ? { max: (v: { max: number }) => Math.ceil(Math.max(v.max, topTarget * 1.15)) } : {}),
+  };
+  const suffix = chart.valueSuffix ?? "";
   const last = chart.series.length - 1;
   return (
     <div>
@@ -197,8 +206,19 @@ export function ReportChart({ chart, onDrill, height }: { chart: Chart; onDrill:
               fontWeight: 600,
               ...(chart.stacked && si === last
                 ? { formatter: (p: { dataIndex: number }) => String(chart.series.reduce((a, x) => a + (x.data[p.dataIndex] ?? 0), 0) || "") }
-                : { formatter: (p: { value: number }) => (p.value ? String(p.value) : "") }),
+                : { formatter: (p: { value: number }) => (p.value ? `${p.value}${suffix}` : "") }),
             },
+            ...(si === 0 && chart.targets?.length
+              ? {
+                  markLine: {
+                    silent: true,
+                    symbol: "none",
+                    lineStyle: { type: "dashed" as const, color: "#b4141f", width: 1.5 },
+                    label: { position: "insideEndTop" as const, color: "#b4141f", fontSize: 11, fontWeight: 600 },
+                    data: chart.targets.map((t) => ({ ...(horizontal ? { xAxis: t.value } : { yAxis: t.value }), label: { formatter: t.label } })),
+                  },
+                }
+              : {}),
             data: s.data.map((v, i) => (s.colors?.[i] ? { value: v, itemStyle: { color: s.colors[i] } } : v)),
           })),
         }}

@@ -4,6 +4,7 @@ import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
+import { checkIdentity, resultSentence } from "@/lib/identity";
 import { maskCnic, normalizeCnic, normalizeName } from "@/lib/names";
 import { requireOtp } from "@/lib/otp";
 import { availabilityFor, isVerifiedLink, linksFor, nextYearRef, notifyVerifiers, thisYear, today, type Availability, type Executor } from "@/lib/registry";
@@ -29,7 +30,7 @@ export type FacultySuggestion = {
   score: number;
   availability: Availability;
 };
-export type AddFacultyResult = ActionResult & { suggestions?: FacultySuggestion[]; pcpId?: string };
+export type AddFacultyResult = ActionResult & { suggestions?: FacultySuggestion[]; pcpId?: string; nadra?: { status: string; nadraName: string | null } };
 
 export type FacultySearchResult = {
   facultyId: number;
@@ -191,6 +192,7 @@ export async function addFaculty(raw: unknown, decision?: "DIFFERENT"): Promise<
 
   const norm = normalizeName(f.fullName);
   let pcpId = "";
+  let newId = 0;
   try {
     await db.transaction(async (tx) => {
       pcpId = await nextFacultyId(tx);
@@ -209,6 +211,7 @@ export async function addFaculty(raw: unknown, decision?: "DIFFERENT"): Promise<
           verificationStatus: matches.length ? "FLAGGED" : "PENDING",
         })
         .returning();
+      newId = row.id;
       await tx.insert(schema.facultyLinks).values({ facultyId: row.id, institutionId: inst.id, programType: f.programType, status: "ACTIVE", startDate: today(), createdBy: user.username });
       for (const m of matches) {
         await tx.insert(schema.duplicateFlags).values({
@@ -227,15 +230,20 @@ export async function addFaculty(raw: unknown, decision?: "DIFFERENT"): Promise<
     if (msg.includes("one_active_institution")) return { ok: false, level: "error", message: "Blocked by the database: this person is already active at another institution." };
     throw e;
   }
+  // CNIC check against NADRA at registration (guide section 14). Simulated: see src/lib/nadra.ts.
+  const { result: id } = await checkIdentity({ entityType: "faculty", entityId: newId, ref: pcpId, cnic, name: f.fullName.trim(), fatherName: f.fatherName.trim() }, "REGISTRATION", user.username);
+  const nadra = { status: id.status, nadraName: id.nadraName };
+  const nadraLine = resultSentence(id, f.fullName.trim());
   revalidateFaculty();
   if (matches.length)
     return {
       ok: true,
       level: "warning",
       pcpId,
-      message: `Saved as ${pcpId}, but flagged as a possible duplicate of ${matches[0].pcpId} (score ${matches[0].score}). PCP's verification officer will review it before it counts towards any application.`,
+      nadra,
+      message: `Saved as ${pcpId}, but flagged as a possible duplicate of ${matches[0].pcpId} (score ${matches[0].score}). PCP's verification officer will review it before it counts towards any application. ${nadraLine}`,
     };
-  return { ok: true, level: "success", pcpId, message: `Saved as ${pcpId}. Awaiting PCP verification.` };
+  return { ok: true, level: id.status === "MATCH" ? "success" : "warning", pcpId, nadra, message: `Saved as ${pcpId}. Awaiting PCP verification. ${nadraLine}` };
 }
 
 /** Search the whole registry by PCP-FAC ID, CNIC or name. Shows only what an outside institution may see. */

@@ -6,10 +6,11 @@ import { useRouter } from "next/navigation";
 import { Alert, App, Button, Card, Empty, Segmented, Select, Table, Upload } from "antd";
 import { CheckCircleFilled, CloseCircleFilled, CloudUploadOutlined, DownloadOutlined, ExclamationCircleFilled, ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import Papa from "papaparse";
-import { checkImport, runImport, sampleImport } from "@/app/actions/pharmacists";
+import Link from "next/link";
+import { checkImport, runImport, sampleImport, type PharmacistNadraRow } from "@/app/actions/pharmacists";
 import type { ImportReport, ImportRow } from "@/lib/pharmacist-import";
 import { COUNCIL_INFO, COUNCILS, type Council } from "@/lib/register";
-import { fmtDate } from "./common";
+import { StatusDot, fmtDate } from "./common";
 
 export type ImportHistory = { id: number; ref: string; council: string; fileName: string; totalRows: number; importedRows: number; errorRows: number; errors: { row: number; regNo: string; errors: string[] }[]; importedBy: string; createdAt: string };
 
@@ -34,7 +35,7 @@ export default function PharmacistImport({ canManage, history }: { canManage: bo
   const [report, setReport] = useState<ImportReport | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [view, setView] = useState<"all" | "errors" | "ready">("all");
-  const [done, setDone] = useState<{ ok: boolean; message: string } | null>(null);
+  const [done, setDone] = useState<{ ok: boolean; message: string; nadra?: PharmacistNadraRow[] } | null>(null);
   const [busy, start] = useTransition();
 
   const check = (c: Council, f: { name: string; text: string }) =>
@@ -72,7 +73,7 @@ export default function PharmacistImport({ canManage, history }: { canManage: bo
         new Promise<void>((resolve) =>
           start(async () => {
             const r = await runImport(council, file.name, file.text);
-            setDone({ ok: r.ok, message: r.message });
+            setDone({ ok: r.ok, message: r.message, nadra: r.nadra });
             if (r.ok) {
               setReport(null);
               setFile(null);
@@ -169,6 +170,35 @@ export default function PharmacistImport({ canManage, history }: { canManage: bo
             </div>
             {problem ? <Alert type="error" showIcon title="The file could not be checked" description={problem} /> : null}
             {done ? <Alert type={done.ok ? "success" : "error"} showIcon title={done.message} data-testid="import-done" /> : null}
+            {done?.nadra?.length ? (
+              <div data-testid="import-nadra" style={{ marginTop: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                  <b style={{ fontWeight: 600 }}>NADRA check of the rows added</b>
+                  <span className="faint" style={{ fontSize: 12 }}>Simulated NADRA check · differences go to PCP&apos;s verification desk</span>
+                </div>
+                <Table
+                  size="small"
+                  rowKey="id"
+                  pagination={false}
+                  dataSource={done.nadra}
+                  columns={[
+                    { title: "Row", dataIndex: "row", width: 56 },
+                    { title: "Pharmacist", render: (_, n) => <Link href={`/pcp/pharmacists/${n.id}`}>{n.name}<div className="faint mono" style={{ fontSize: 11.5 }}>{n.regNo}</div></Link> },
+                    {
+                      title: "NADRA result",
+                      render: (_, n) =>
+                        n.status === "MATCH" ? (
+                          <StatusDot tone="good">NADRA verified</StatusDot>
+                        ) : n.status === "NAME_MISMATCH" ? (
+                          <StatusDot tone="warn">{`Name differs at NADRA: ${n.nadraName}`}</StatusDot>
+                        ) : (
+                          <StatusDot tone="bad">Not found at NADRA</StatusDot>
+                        ),
+                    },
+                  ]}
+                />
+              </div>
+            ) : null}
           </div>
 
           {report ? (

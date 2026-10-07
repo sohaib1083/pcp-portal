@@ -5,6 +5,8 @@ import { Alert, App, Button, Card, Col, Drawer, Form, Input, Modal, Popconfirm, 
 import { BankOutlined, KeyOutlined, PlusOutlined, StopOutlined, CheckOutlined } from "@ant-design/icons";
 import { createAccount, onboardInstitution, resetAccountPassword, setAccountActive, type AdminResult } from "@/app/actions/admin";
 import { INST_ROLES, PCP_ROLES, ROLE_DESCRIPTIONS, ROLE_LABELS } from "@/lib/roles";
+import AccessReview, { type AccessReviewData } from "./AccessReview";
+import RetentionPanel, { type RetentionData } from "./RetentionPanel";
 import { PageTitle, Person, Pill } from "./common";
 import { FillDemo } from "./demo-helpers";
 
@@ -24,7 +26,24 @@ const roleOption = (r: string) => ({
   ),
 });
 
-export default function AdminView({ me, institutions, staff, kcError }: { me: string; institutions: Inst[]; staff: User[]; kcError: string | null }) {
+export default function AdminView({
+  me,
+  institutions,
+  staff,
+  kcError,
+  tab,
+  access,
+  retention,
+}: {
+  me: string;
+  institutions: Inst[];
+  staff: User[];
+  kcError: string | null;
+  tab?: string;
+  access?: AccessReviewData;
+  retention?: RetentionData;
+}) {
+  const [activeTab, setActiveTab] = useState(tab && ["tenants", "staff", "access", "retention"].includes(tab) ? tab : "tenants");
   const { message } = App.useApp();
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -77,6 +96,11 @@ export default function AdminView({ me, institutions, staff, kcError }: { me: st
       />
       {kcError ? <Alert type="error" showIcon style={{ marginBottom: 16 }} title="Keycloak admin API unreachable" description={kcError} /> : null}
       <Tabs
+        activeKey={activeTab}
+        onChange={(k) => {
+          setActiveTab(k);
+          window.history.replaceState(null, "", `/pcp/admin?tab=${k}`);
+        }}
         items={[
           {
             key: "tenants",
@@ -174,6 +198,21 @@ export default function AdminView({ me, institutions, staff, kcError }: { me: st
               </>
             ),
           },
+          ...(access
+            ? [
+                {
+                  key: "access",
+                  label: (
+                    <span data-testid="tab-access">
+                      Access review{" "}
+                      {access.current ? null : <Tag color="orange" style={{ marginInlineStart: 4 }}>Due</Tag>}
+                    </span>
+                  ),
+                  children: <AccessReview data={access} />,
+                },
+              ]
+            : []),
+          ...(retention ? [{ key: "retention", label: <span data-testid="tab-retention">Retention</span>, children: <RetentionPanel data={retention} /> }] : []),
         ]}
       />
 

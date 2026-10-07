@@ -13,12 +13,14 @@ import {
   ReloadOutlined,
   SafetyCertificateOutlined,
   TeamOutlined,
+  TrophyOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
 import { issueFeedKey, revokeFeedKey } from "@/app/actions/reports";
-import { PROGRAMME_LABELS, describeFilters, filtersToQuery, type FilterKey, type Report, type ReportFilters } from "@/lib/report-types";
+import { PROGRAMME_LABELS, describeFilters, filtersToQuery, type FilterKey, type Report, type ReportFilters, type ReportKpi } from "@/lib/report-types";
 import { useOtp } from "./OtpConfirm";
 import { ExportButtons, ReportChart, ReportTable, ReportTableStyles, useDrill } from "./ReportParts";
+import ScreenGuide from "./ScreenGuide";
 import { PageTitle, StatusDot, fmtDate, timeAgo } from "./common";
 
 type FeedKeyRow = { id: string; name: string; audience: string; prefix: string; active: boolean; issuedAt: string; issuedBy: string; revokedAt: string | null; calls: number; lastCall: string | null };
@@ -42,7 +44,29 @@ const TAB_LABELS: Record<string, { label: string; icon: React.ReactNode }> = {
   ratio: { label: "Faculty ratio", icon: <TeamOutlined /> },
   validity: { label: "Validity", icon: <SafetyCertificateOutlined /> },
   "early-warning": { label: "Early warning", icon: <WarningOutlined /> },
+  measures: { label: "Measures of success", icon: <TrophyOutlined /> },
 };
+
+/** A headline figure against its target; clicking it opens the list behind it. */
+function KpiTile({ k, onDrill }: { k: ReportKpi; onDrill: Parameters<typeof ReportTable>[0]["onDrill"] }) {
+  const tone = k.met === null ? { fg: "#55625c", bg: "#f7f9f8", bd: "var(--line)", word: "No data yet" } : k.met ? { fg: "#0d7a3d", bg: "#f3fbf6", bd: "#c9ecd8", word: "Target met" } : { fg: "#a15c00", bg: "#fffaf0", bd: "#ffe1a8", word: "Target not met" };
+  return (
+    <button
+      type="button"
+      data-testid={`kpi-${k.key}`}
+      onClick={() => k.drill && onDrill(k.drill)}
+      disabled={!k.drill}
+      style={{ all: "unset", cursor: k.drill ? "pointer" : "default", display: "block", height: "100%", boxSizing: "border-box", width: "100%", padding: 14, borderRadius: 12, border: `1px solid ${tone.bd}`, background: tone.bg }}
+    >
+      <div style={{ fontSize: 12.5, color: "var(--muted)", fontWeight: 600 }}>{k.label}</div>
+      <div className="tnum" style={{ fontSize: 26, fontWeight: 750, letterSpacing: "-0.02em", color: "var(--ink)", marginTop: 4 }}>{k.value}</div>
+      <div style={{ fontSize: 12.5, color: tone.fg, fontWeight: 600, marginTop: 2 }}>
+        {tone.word} · {k.target}
+      </div>
+      <div className="faint" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.4 }}>{k.detail}</div>
+    </button>
+  );
+}
 const FILTER_NAMES: Record<FilterKey, string> = { province: "Province", sector: "Sector", programme: "Programme", year: "Year" };
 
 function ReportPanel({ report, filters, onDrill }: { report: Report; filters: ReportFilters; onDrill: Parameters<typeof ReportTable>[0]["onDrill"] }) {
@@ -62,12 +86,38 @@ function ReportPanel({ report, filters, onDrill }: { report: Report; filters: Re
           {ignored.length ? ` · ${ignored.map((k) => FILTER_NAMES[k]).join(" and ")} filter does not apply to this report` : ""}
         </div>
       </div>
+      {report.kpis?.length ? (
+        <Row gutter={[12, 12]} style={{ padding: "10px 20px 16px" }} data-testid="report-kpis">
+          {report.kpis.map((k) => (
+            <Col key={k.key} xs={24} sm={12} xl={6}>
+              <KpiTile k={k} onDrill={onDrill} />
+            </Col>
+          ))}
+        </Row>
+      ) : null}
       {report.chart ? (
         <div style={{ padding: "8px 20px 12px", borderBottom: "1px solid var(--line-2)" }}>
           <ReportChart chart={report.chart} onDrill={onDrill} />
         </div>
       ) : null}
-      <ReportTable report={report} onDrill={onDrill} pageSize={report.rows.length > 25 ? 20 : 0} />
+      {report.sections?.length ? (
+        report.sections.map((sec) => (
+          <div key={sec.key} data-testid={`section-${sec.key}`} style={{ borderTop: "1px solid var(--line-2)" }}>
+            <div style={{ padding: "16px 20px 4px" }}>
+              <div className="pcp-section-title" style={{ fontSize: 15 }}>{sec.title}</div>
+              {sec.sub ? <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{sec.sub}</div> : null}
+            </div>
+            {sec.chart ? (
+              <div style={{ padding: "8px 20px 12px" }}>
+                <ReportChart chart={sec.chart} onDrill={onDrill} height={220} />
+              </div>
+            ) : null}
+            <ReportTable report={sec} onDrill={onDrill} pageSize={sec.rows.length > 12 ? 12 : 0} />
+          </div>
+        ))
+      ) : (
+        <ReportTable report={report} onDrill={onDrill} pageSize={report.rows.length > 25 ? 20 : 0} />
+      )}
       {report.notes.length ? (
         <ul className="faint" style={{ fontSize: 12.5, margin: 0, padding: "12px 20px 14px 36px", borderTop: "1px solid var(--line-2)" }}>
           {report.notes.map((n) => (
@@ -321,6 +371,17 @@ export default function ReportsView({ reports, filters, tab, provinces, years, f
         eyebrow="Finance & reports"
         title="Reports & exports"
         sub="Standard reports for PCP's decisions. Every figure opens the list behind it, and every report exports to Excel, PDF and CSV with the filters you set."
+        extra={
+          <ScreenGuide
+            title="Reports & exports"
+            steps={[
+              "Set the **Filters** once: they apply to every report and to its exports.",
+              "Click any figure or bar to open the list of records behind it.",
+              "**Measures of success** tracks the guide's three measures against the targets in the kpi.targets reference rule: days to decide an NOC, cases returned for deficiency, and annual returns filed on time.",
+              "**Excel**, **PDF** and **CSV** download the report with the filters you set. Every download is written to the audit log.",
+            ]}
+          />
+        }
       />
       <Card size="small" style={{ marginBottom: 16 }} styles={{ body: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" } }} data-testid="report-filters">
         <span className="muted" style={{ fontSize: 13, display: "inline-flex", gap: 6, alignItems: "center" }}>

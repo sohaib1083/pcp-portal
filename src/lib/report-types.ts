@@ -1,7 +1,7 @@
 // Report shapes shared by the server (builders, exports) and the client (tables, charts). Pure: no imports.
 
-export type ReportId = "institutions" | "intake" | "graduates" | "ratio" | "validity" | "early-warning" | "payments";
-export const STANDARD_REPORTS: Exclude<ReportId, "payments">[] = ["institutions", "intake", "graduates", "ratio", "validity", "early-warning"];
+export type ReportId = "institutions" | "intake" | "graduates" | "ratio" | "validity" | "early-warning" | "measures" | "payments";
+export const STANDARD_REPORTS: Exclude<ReportId, "payments">[] = ["institutions", "intake", "graduates", "ratio", "validity", "early-warning", "measures"];
 
 export type ReportFilters = {
   province?: string;
@@ -21,7 +21,7 @@ export type ColType = "text" | "int" | "pct" | "date" | "num" | "money" | "code"
 export type ReportCol = { key: string; title: string; type?: ColType };
 export type Cell = string | number | null;
 
-export type DrillKind = "institutions" | "students" | "faculty" | "programmes" | "deficiencies" | "returns" | "faculty-moves" | "payments";
+export type DrillKind = "institutions" | "students" | "faculty" | "programmes" | "deficiencies" | "returns" | "faculty-moves" | "payments" | "cases" | "return-timeliness";
 export type Drill = { kind: DrillKind; params: Record<string, string | number | null | undefined>; label: string };
 
 export type ReportRow = {
@@ -33,7 +33,20 @@ export type ReportRow = {
 };
 
 export type ChartSeries = { name: string; data: number[]; color?: string; drills?: (Drill | null)[]; colors?: (string | null)[] };
-export type ReportChart = { type: "hbar" | "vbar"; stacked?: boolean; categories: string[]; series: ChartSeries[]; caption?: string };
+export type ReportChart = {
+  type: "hbar" | "vbar";
+  stacked?: boolean;
+  categories: string[];
+  series: ChartSeries[];
+  caption?: string;
+  targets?: { value: number; label: string }[]; // dashed target lines (measures of success)
+  valueSuffix?: string; // shown after each bar label, e.g. "%" or " d"
+};
+
+/** A headline figure with its target (measures of success). */
+export type ReportKpi = { key: string; label: string; value: string; target: string; met: boolean | null; detail: string; drill?: Drill };
+/** A report with several tables on screen; `Report.columns/rows` then hold the same figures as one table for export. */
+export type ReportSection = { key: string; title: string; sub?: string; columns: ReportCol[]; rows: ReportRow[]; chart: ReportChart | null };
 
 export type Report = {
   id: ReportId;
@@ -44,6 +57,8 @@ export type Report = {
   rows: ReportRow[];
   chart: ReportChart | null;
   notes: string[];
+  kpis?: ReportKpi[];
+  sections?: ReportSection[];
 };
 
 export type DrillResult = { title: string; columns: ReportCol[]; rows: Record<string, Cell>[]; truncated?: boolean };

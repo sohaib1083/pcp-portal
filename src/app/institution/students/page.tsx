@@ -1,6 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import StudentsView from "@/components/StudentsView";
 import { db, schema } from "@/db";
+import { latestIdentity } from "@/lib/identity";
 import { maskCnic } from "@/lib/names";
 import { lockedYears } from "@/lib/registry";
 import { can } from "@/lib/roles";
@@ -21,6 +22,7 @@ export default async function StudentsPage() {
     .orderBy(schema.students.enrollmentYear);
   const programs = await db.select().from(schema.programs).where(eq(schema.programs.institutionId, inst.id));
   const locked = await lockedYears(db, inst.id);
+  const nadra = await latestIdentity("student", rows.map((s) => s.id));
 
   return (
     <StudentsView
@@ -47,6 +49,7 @@ export default async function StudentsPage() {
         degreeVerified: s.degreeVerified,
         eligible: s.eligibleForRegistration,
         hasLogin: !!s.username,
+        nadra: nadra[s.id] ?? null,
       }))}
     />
   );

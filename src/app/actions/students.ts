@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import type { AnnualFigures } from "@/db/modules/students";
 import { audit } from "@/lib/audit";
+import { checkIdentities, checkIdentity, resultSentence } from "@/lib/identity";
 import { normalizeCnic } from "@/lib/names";
 import { requireOtp } from "@/lib/otp";
 import { lockedReturn, lockedYears, nextStudentIds, nextYearRef, notifyVerifiers, thisYear } from "@/lib/registry";
@@ -67,9 +68,10 @@ export async function addStudent(raw: unknown): Promise<ActionResult> {
   const enrolled = await db.$count(schema.students, and(eq(schema.students.institutionId, inst.id), eq(schema.students.programType, s.programType), eq(schema.students.enrollmentYear, s.enrollmentYear)));
   const overIntake = enrolled + 1 > program.approvedIntake;
   let pcpId = "";
+  let studentId = 0;
   await db.transaction(async (tx) => {
     [pcpId] = await nextStudentIds(tx, inst.shortCode, s.enrollmentYear, s.programType, 1);
-    await tx.insert(schema.students).values({
+    const [row] = await tx.insert(schema.students).values({
       pcpId,
       institutionId: inst.id,
       programType: s.programType,
@@ -82,13 +84,17 @@ export async function addStudent(raw: unknown): Promise<ActionResult> {
       enrollmentYear: s.enrollmentYear,
       currentYear: 1,
       status: "ENROLLED",
-    });
+    }).returning({ id: schema.students.id });
+    studentId = row.id;
     await audit(tx, { actor: user.username, action: "student.enrolled", entity: "student", entityId: pcpId, details: { institution: inst.code, overIntake } });
   });
+  // CNIC check against NADRA at enrolment (guide section 14). Simulated: see src/lib/nadra.ts.
+  const { result: id } = await checkIdentity({ entityType: "student", entityId: studentId, ref: pcpId, cnic, name: s.fullName.trim(), fatherName: s.fatherName.trim() }, "REGISTRATION", user.username);
+  const nadraLine = resultSentence(id, s.fullName.trim());
   revalidateStudents();
   return overIntake
-    ? { ok: true, level: "warning", message: `Enrolled as ${pcpId}. Note: ${s.enrollmentYear} enrolment now exceeds the approved intake of ${program.approvedIntake}; PCP's dashboard will flag this.` }
-    : { ok: true, level: "success", message: `Enrolled. PCP student ID: ${pcpId}` };
+    ? { ok: true, level: "warning", message: `Enrolled as ${pcpId}. Note: ${s.enrollmentYear} enrolment now exceeds the approved intake of ${program.approvedIntake}; PCP's dashboard will flag this. ${nadraLine}` }
+    : { ok: true, level: id.status === "MATCH" ? "success" : "warning", message: `Enrolled. PCP student ID: ${pcpId}. ${nadraLine}` };
 }
 
 // ---------- Bulk upload ----------
@@ -183,25 +189,33 @@ export async function checkStudentUpload(rows: UploadRow[]): Promise<{ ok: boole
 }
 
 /** Import the rows that pass every check. The file is checked again on the server first. */
-export async function importStudentUpload(rows: UploadRow[]): Promise<ActionResult & { imported?: number; ids?: string[] }> {
+/** The NADRA result for one imported row, for the import report. */
+export type ImportNadraRow = { line: number; pcpId: string; name: string; status: string; nadraName: string | null; txnId: string };
+
+export async function importStudentUpload(rows: UploadRow[]): Promise<ActionResult & { imported?: number; ids?: string[]; nadra?: ImportNadraRow[] }> {
   const { user, inst } = await requireInstitution("inst.students.edit");
   if (!Array.isArray(rows) || !rows.length || rows.length > MAX_ROWS) return { ok: false, level: "error", message: "Upload the file again." };
   const { checks, clean } = await validateUpload(inst, rows);
   if (!clean.size) return { ok: false, level: "error", message: "No row passed the checks, so nothing was imported. Fix the file and upload it again." };
   const ids: string[] = [];
+  const saved: { line: number; id: number; pcpId: string; row: CleanRow }[] = [];
   try {
     await db.transaction(async (tx) => {
-      const groups = new Map<string, CleanRow[]>();
-      for (const r of clean.values()) {
+      const groups = new Map<string, [number, CleanRow][]>();
+      for (const [line, r] of clean.entries()) {
         const k = `${r.enrollmentYear}:${r.programType}`;
-        groups.set(k, [...(groups.get(k) ?? []), r]);
+        groups.set(k, [...(groups.get(k) ?? []), [line, r]]);
       }
       for (const [k, list] of groups) {
         const [y, type] = k.split(":");
         const newIds = await nextStudentIds(tx, inst.shortCode, Number(y), type, list.length);
-        await tx.insert(schema.students).values(
-          list.map((r, i) => ({ pcpId: newIds[i], institutionId: inst.id, programType: r.programType, cnic: r.cnic, fullName: r.fullName, fatherName: r.fatherName, mobile: r.mobile, email: r.email, shift: r.shift, enrollmentYear: r.enrollmentYear, currentYear: r.currentYear, status: "ENROLLED" })),
-        );
+        const inserted = await tx
+          .insert(schema.students)
+          .values(
+            list.map(([, r], i) => ({ pcpId: newIds[i], institutionId: inst.id, programType: r.programType, cnic: r.cnic, fullName: r.fullName, fatherName: r.fatherName, mobile: r.mobile, email: r.email, shift: r.shift, enrollmentYear: r.enrollmentYear, currentYear: r.currentYear, status: "ENROLLED" })),
+          )
+          .returning({ id: schema.students.id, pcpId: schema.students.pcpId });
+        list.forEach(([line, r], i) => saved.push({ line, id: inserted[i].id, pcpId: inserted[i].pcpId, row: r }));
         ids.push(...newIds);
       }
       await audit(tx, { actor: user.username, action: "student.bulk.imported", entity: "institution", entityId: inst.code, details: { imported: ids.length, skipped: checks.length - ids.length, first: ids[0], last: ids[ids.length - 1] } });
@@ -210,14 +224,25 @@ export async function importStudentUpload(rows: UploadRow[]): Promise<ActionResu
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, level: "error", message: msg.includes("cnic") ? "A CNIC in the file was registered while you were checking it. Check the file again." : msg };
   }
+  // CNIC check against NADRA for every imported row, in one batch (guide section 14). Simulated: see src/lib/nadra.ts.
+  saved.sort((a, b) => a.line - b.line);
+  const checked = await checkIdentities(
+    saved.map((x) => ({ entityType: "student" as const, entityId: x.id, ref: x.pcpId, cnic: x.row.cnic, name: x.row.fullName, fatherName: x.row.fatherName })),
+    "IMPORT",
+    user.username,
+    `${inst.shortCode}'s student upload`,
+  );
+  const nadra: ImportNadraRow[] = checked.map((c, i) => ({ line: saved[i].line, pcpId: c.subject.ref, name: c.subject.name, status: c.result.status, nadraName: c.result.nadraName, txnId: c.result.txnId }));
+  const differ = nadra.filter((x) => x.status !== "MATCH").length;
   revalidateStudents();
   const skipped = checks.length - ids.length;
   return {
     ok: true,
-    level: skipped ? "warning" : "success",
+    level: skipped || differ ? "warning" : "success",
     imported: ids.length,
     ids,
-    message: `Imported ${ids.length} student${ids.length === 1 ? "" : "s"} with new PCP student IDs.${skipped ? ` ${skipped} row${skipped === 1 ? "" : "s"} with errors were not imported.` : ""}`,
+    nadra,
+    message: `Imported ${ids.length} student${ids.length === 1 ? "" : "s"} with new PCP student IDs.${skipped ? ` ${skipped} row${skipped === 1 ? "" : "s"} with errors were not imported.` : ""} Simulated NADRA check: ${nadra.length - differ} matched${differ ? `, ${differ} sent to PCP for review` : ""}.`,
   };
 }
 

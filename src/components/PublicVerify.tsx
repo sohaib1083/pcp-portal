@@ -190,6 +190,9 @@ export default function PublicVerify({
           ]}
         />
       </div>
+      <p style={{ margin: "14px 4px 0", fontSize: 13 }} className="muted">
+        <LockOutlined /> <Link href="/privacy" data-testid="verify-privacy">{t("verify.privacy")}</Link>
+      </p>
     </PublicFrame>
   );
 }

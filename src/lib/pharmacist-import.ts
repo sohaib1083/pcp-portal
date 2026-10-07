@@ -214,7 +214,8 @@ export async function sampleImportFile(council: Council) {
   const dupCnic = cnic();
   const rows: string[][] = [
     [fresh("A"), "Mahnoor Tariq", "Tariq Mehmood", dupCnic, "F", "A", uni, "2022", "2023-02-14", "2028-12-31", "Active", "0301-2345678", "mahnoor.t@mail.demo", ""],
-    [fresh("A"), "Danish Iqbal", "Muhammad Iqbal", cnic(), "M", "A", uni, "2021", "2022-03-01", "2027-12-31", "Active", "0333-1112223", "", ""],
+    // CNIC ending in 1111: the simulated NADRA check returns a different spelling of the name (src/lib/nadra.ts).
+    [fresh("A"), "Danish Iqbal", "Muhammad Iqbal", `${info.cnicPrefix}-${rnd(100, 999)}1111-1`, "M", "A", uni, "2021", "2022-03-01", "2027-12-31", "Active", "0333-1112223", "", ""],
     [fresh("B"), "Sidra Naz", "Abdul Ghafoor", cnic(), "F", "B", uni, "2023", "2024-01-20", "2029-06-30", "Active", "", "", ""],
     [fresh("A"), "Fahad Rasheed", "Abdul Rasheed", cnic(), "M", "A", "Hyderabad Institute of Pharmacy", "2020", "2021-07-05", "2026-12-31", "Active", "0345-9988776", "", ""],
     [fresh("B"), "Areej Fatima", "Ghulam Abbas", cnic(), "F", "B", uni, "2019", "2020-05-10", "2024-06-30", "Dormant", "", "", ""],

@@ -16,10 +16,13 @@ import {
   TrophyOutlined,
   UndoOutlined,
 } from "@ant-design/icons";
-import { addStudent, checkDegree, checkStudentUpload, importStudentUpload, updateStudentLifecycle, type UploadCheck } from "@/app/actions/students";
+import { addStudent, checkDegree, checkStudentUpload, importStudentUpload, updateStudentLifecycle, type ImportNadraRow, type UploadCheck } from "@/app/actions/students";
+import { NADRA_RULE_TEXT, type IdentityBadge } from "@/lib/identity-shared";
 import { PROGRAMME_YEARS, UPLOAD_COLUMNS, UPLOAD_TEMPLATE_ROWS, toCsv, type UploadRow } from "@/lib/registry-shared";
 import { KV, PageTitle, Person, StatCard, fmtDate, programLabel } from "./common";
 import { DEMO } from "./demo-helpers";
+import NadraBadge, { NadraStatus } from "./NadraBadge";
+import ScreenGuide from "./ScreenGuide";
 import { RegStatus, SectionLabel, downloadText, useBusy } from "./registry-ui";
 
 type Row = {
@@ -40,6 +43,7 @@ type Row = {
   degreeVerified: boolean;
   eligible: boolean;
   hasLogin: boolean;
+  nadra: IdentityBadge | null;
 };
 type Locked = { programType: string; year: number; ref: string; lockedAt: string | null };
 
@@ -58,6 +62,9 @@ const SAMPLE_ROWS: UploadRow[] = [
   { full_name: "Rabia Iqbal", father_name: "Muhammad Iqbal", cnic: "17301-5550009-1", mobile: "0309-5550009", email: "rabia.iqbal@student.demo", programme: "PHARMD", session: "Self-finance", enrolment_year: "2025", year_of_study: "1" },
   { full_name: "Owais Qureshi", father_name: "Adnan Qureshi", cnic: "17301-5550010-2", mobile: "0310-5550010", email: "owais.qureshi@student.demo", programme: "PHARMD", session: "Morning", enrolment_year: "2026", year_of_study: "4" },
   { full_name: "Maryam Javed", father_name: "Javed Iqbal", cnic: "17301-5550011-3", mobile: "0311-5550011", email: "maryam.javed@student.demo", programme: "PHARMD", session: "Self-finance", enrolment_year: "2026", year_of_study: "1" },
+  // The simulated NADRA check (src/lib/nadra.ts): a CNIC ending in 1111 comes back with another spelling, one ending in 0000 is not found.
+  { full_name: "Muhammad Hamza Aslam", father_name: "Muhammad Aslam", cnic: "17301-5551111-1", mobile: "0312-5550012", email: "hamza.aslam@student.demo", programme: "PHARMD", session: "Morning", enrolment_year: "2026", year_of_study: "1" },
+  { full_name: "Iqra Shaheen", father_name: "Shaheen Akhtar", cnic: "17301-5550000-0", mobile: "0313-5550013", email: "iqra.shaheen@student.demo", programme: "PHARMD", session: "Evening", enrolment_year: "2026", year_of_study: "1" },
 ];
 
 const COLUMN_GUIDE: [string, string, string][] = [
@@ -111,6 +118,17 @@ export default function StudentsView(props: {
         extra={
           props.canEdit ? (
             <>
+              <ScreenGuide
+                title="Students"
+                intro="Each student gets one PCP student ID. The CNIC or B-Form is checked with NADRA when the student is enrolled, one by one or by bulk upload."
+                steps={[
+                  "**Enrol student** for one student, or **Bulk upload** a CSV: every row is checked before anything is saved.",
+                  "After saving, each CNIC is checked with NADRA. The bulk upload shows the result for every row.",
+                  NADRA_RULE_TEXT,
+                  "A difference goes to PCP's verification officer. Open a student to see the badge or run **Check CNIC with NADRA** again.",
+                ]}
+                note="The NADRA check is simulated in this demo: no NADRA system is called."
+              />
               <Button icon={<CloudUploadOutlined />} onClick={() => setBulkOpen(true)}>
                 Bulk upload
               </Button>
@@ -186,7 +204,12 @@ export default function StudentsView(props: {
               dataIndex: "status",
               filters: ["ENROLLED", "PROMOTED", "REPEAT", "GRADUATED", "WITHDRAWN"].map((s) => ({ text: s.charAt(0) + s.slice(1).toLowerCase(), value: s })),
               onFilter: (v, r) => r.status === v,
-              render: (v) => <RegStatus value={v} />,
+              render: (v, r) => (
+                <span style={{ display: "inline-flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+                  <RegStatus value={v} />
+                  {r.nadra && r.nadra.status !== "MATCH" && r.nadra.reviewStatus === "OPEN" ? <NadraStatus badge={r.nadra} short /> : null}
+                </span>
+              ),
             },
             { title: "Latest result", render: (_, r) => (r.result ? <span><RegStatus value={r.result} /> <span className="faint" style={{ fontSize: 12 }}>{r.resultYear}</span></span> : <span className="faint">—</span>) },
             {
@@ -339,6 +362,7 @@ function StudentDrawer({ student: s, locked, canEdit, onClose, onDone }: { stude
               ["PCP student ID", <span key="id" className="mono">{s.pcpId}</span>],
               ["Father's name", s.fatherName],
               ["CNIC / B-Form", <span key="c" className="mono">{s.cnic}</span>],
+              ["NADRA check", <NadraBadge key={`n${s.id}`} entityType="student" entityId={s.id} badge={s.nadra} canCheck={canEdit} />],
               ["Mobile", s.mobile],
               ["Email", s.email],
               ["Programme", `${programLabel(s.programType)} · ${s.shift} session`],
@@ -420,7 +444,7 @@ function BulkUpload({ open, onClose, onDone, approved }: { open: boolean; onClos
   const [parsed, setParsed] = useState<Parsed | null>(null);
   const [checks, setChecks] = useState<UploadCheck[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const [done, setDone] = useState<{ message: string; ids: string[] } | null>(null);
+  const [done, setDone] = useState<{ message: string; ids: string[]; nadra: ImportNadraRow[] } | null>(null);
   const [onlyErrors, setOnlyErrors] = useState(false);
   const [busy, setBusy] = useState(false);
   const valid = checks?.filter((c) => !c.errors.length).length ?? 0;
@@ -483,7 +507,7 @@ function BulkUpload({ open, onClose, onDone, approved }: { open: boolean; onClos
         const r = await importStudentUpload(parsed.rows);
         message[r.ok ? "success" : "error"](r.message);
         if (r.ok) {
-          setDone({ message: r.message, ids: r.ids ?? [] });
+          setDone({ message: r.message, ids: r.ids ?? [], nadra: r.nadra ?? [] });
           setChecks(null);
           onDone();
         }
@@ -599,6 +623,34 @@ function BulkUpload({ open, onClose, onDone, approved }: { open: boolean; onClos
                     <RegStatus value="ACTIVE" label="Ready to import" />
                   ),
               },
+            ]}
+          />
+        </div>
+      ) : null}
+      {done?.nadra.length ? (
+        <div data-testid="import-nadra">
+          <SectionLabel extra={<span className="faint" style={{ fontSize: 12 }}>Simulated NADRA check</span>}>NADRA check of the imported rows</SectionLabel>
+          <Table
+            size="small"
+            rowKey="line"
+            dataSource={done.nadra}
+            pagination={{ pageSize: 15, hideOnSinglePage: true }}
+            columns={[
+              { title: "Row", dataIndex: "line", width: 60 },
+              { title: "Student", render: (_, n) => <span>{n.name}<div className="faint mono" style={{ fontSize: 11.5 }}>{n.pcpId}</div></span> },
+              {
+                title: "NADRA result",
+                render: (_, n) =>
+                  n.status === "MATCH" ? (
+                    <RegStatus value="ACTIVE" label="NADRA verified" />
+                  ) : n.status === "NAME_MISMATCH" ? (
+                    <RegStatus value="PENDING" label={`Name differs at NADRA: ${n.nadraName}`} />
+                  ) : (
+                    <RegStatus value="REJECTED" label="Not found at NADRA" />
+                  ),
+              },
+              { title: "What happens next", render: (_, n) => <span className="muted" style={{ fontSize: 12.5 }}>{n.status === "MATCH" ? "Nothing: the CNIC and name match." : "Imported. PCP's verification officer reviews the difference."}</span> },
+              { title: "Transaction", dataIndex: "txnId", render: (v) => <span className="mono faint" style={{ fontSize: 11.5 }}>{v}</span>, responsive: ["lg"] },
             ]}
           />
         </div>

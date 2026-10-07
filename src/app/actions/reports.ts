@@ -10,7 +10,7 @@ import { can } from "@/lib/roles";
 import { getUser } from "@/lib/session";
 import type { ActionResult } from "./faculty";
 
-const KINDS: DrillKind[] = ["institutions", "students", "faculty", "programmes", "deficiencies", "returns", "faculty-moves", "payments"];
+const KINDS: DrillKind[] = ["institutions", "students", "faculty", "programmes", "deficiencies", "returns", "faculty-moves", "payments", "cases", "return-timeliness"];
 
 /** The list behind a figure: every number on the Reports page can be checked (guide section 14). */
 export async function drillDown(d: Drill): Promise<{ ok: true; result: DrillResult } | { ok: false; message: string }> {

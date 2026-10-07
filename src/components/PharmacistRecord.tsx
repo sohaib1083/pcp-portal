@@ -17,9 +17,11 @@ import {
   SafetyCertificateOutlined,
 } from "@ant-design/icons";
 import { changePharmacistStatus, createPharmacistLogin, reviewPracticeUpdate } from "@/app/actions/pharmacists";
+import type { IdentityBadge } from "@/lib/identity-shared";
 import { CATEGORY_LABELS, COUNCIL_INFO, STATUSES, STATUS_LABELS, isCouncil, validityLapsed } from "@/lib/register";
 import { useOtp } from "./OtpConfirm";
 import { KV, PageTitle, Pill, fmtDate, timeAgo } from "./common";
+import NadraBadge from "./NadraBadge";
 import { RegStatus, bannerTone, statusSentence } from "./pharmacist-parts";
 
 type Rec = {
@@ -68,10 +70,26 @@ const STATUS_HELP: Record<string, string> = {
   SUSPENDED: "Suspended by the council. May not practise while it lasts.",
   CANCELLED: "Removed from the council's register. May not practise.",
 };
-const EVENT_COLOR: Record<string, string> = { IMPORTED: "gray", STATUS: "orange", PRACTICE: "green", LOGIN: "blue", CARD: "gray" };
-const EVENT_LABEL: Record<string, string> = { IMPORTED: "Imported", STATUS: "Status changed", PRACTICE: "Practice details", LOGIN: "Portal login", CARD: "Registration card" };
+const EVENT_COLOR: Record<string, string> = { IMPORTED: "gray", STATUS: "orange", PRACTICE: "green", LOGIN: "blue", CARD: "gray", IDENTITY: "blue" };
+const EVENT_LABEL: Record<string, string> = { IMPORTED: "Imported", STATUS: "Status changed", PRACTICE: "Practice details", LOGIN: "Portal login", CARD: "Registration card", IDENTITY: "NADRA check" };
 
-export default function PharmacistRecord({ canManage, p, imported, events, updates, documents }: { canManage: boolean; p: Rec; imported: { ref: string; fileName: string; createdAt: string } | null; events: Ev[]; updates: Upd[]; documents: Doc[] }) {
+export default function PharmacistRecord({
+  canManage,
+  p,
+  imported,
+  events,
+  updates,
+  documents,
+  nadra = null,
+}: {
+  canManage: boolean;
+  p: Rec;
+  imported: { ref: string; fileName: string; createdAt: string } | null;
+  events: Ev[];
+  updates: Upd[];
+  documents: Doc[];
+  nadra?: IdentityBadge | null;
+}) {
   const { message } = App.useApp();
   const router = useRouter();
   const { withOtp, otpModal } = useOtp();
@@ -331,6 +349,7 @@ export default function PharmacistRecord({ canManage, p, imported, events, updat
                 ["Full name", p.fullName],
                 ["Father's name", p.fatherName],
                 ["CNIC", <span key="c" className="mono" style={{ fontSize: 13 }}>{p.cnic}</span>],
+                ["NADRA check", <NadraBadge key="n" entityType="pharmacist" entityId={p.id} badge={nadra} canCheck={canManage} />],
                 ["Gender", p.gender === "F" ? "Female" : p.gender === "M" ? "Male" : "—"],
                 ["Mobile", p.mobile ?? "—"],
                 ["Email", p.email ?? "—"],

@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       postgresql-15 postgresql-contrib-15 openjdk-17-jre-headless nginx-light ca-certificates curl openssl \
     && rm -rf /var/lib/apt/lists/*
 ENV PATH="/usr/lib/postgresql/15/bin:${PATH}" \
-    NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 \
+    NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 TZ=Asia/Karachi \
     JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 COPY --from=keycloak /opt/keycloak /opt/keycloak
 COPY bundle /app

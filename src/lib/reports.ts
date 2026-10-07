@@ -5,6 +5,7 @@ import { and, desc, eq, gte, inArray, notInArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { getRule, type ProgramRule } from "./rules";
 import { purposeCategory } from "./accounts";
+import { measuresDrill, measuresReport } from "./measures";
 import {
   PROGRAMME_LABELS,
   PROVINCES,
@@ -659,6 +660,8 @@ export async function buildReport(id: ReportId, f: ReportFilters): Promise<Repor
       return validityReport(f);
     case "early-warning":
       return earlyWarningReport(f);
+    case "measures":
+      return measuresReport(f);
     case "payments":
       return paymentsReport(f);
   }
@@ -669,6 +672,7 @@ export async function buildReport(id: ReportId, f: ReportFilters): Promise<Repor
 const str = (v: unknown) => (v === undefined || v === null || v === "" ? undefined : String(v));
 
 export async function drillList(d: Drill): Promise<DrillResult> {
+  if (d.kind === "cases" || d.kind === "return-timeliness") return measuresDrill(d);
   const p = d.params;
   const f: ReportFilters = { province: str(p.province), sector: str(p.sector), programme: str(p.programme), year: p.year ? Number(p.year) : undefined };
   const { insts, progs, inScope, byId } = await registry(f);
