@@ -194,7 +194,7 @@ try {
 
   // 7. POC responds
   ({ ctx, page } = await login("ruh.poc"));
-  await page.goto(`${BASE}/institution/applications/${ref}`);
+  await page.goto(`${BASE}/institution/applications/${ref}`, { waitUntil: "networkidle" });
   await page.getByPlaceholder("What did you do to fix it?").fill("Safety certificate obtained from the district fire officer; attached.");
   await page.getByRole("button", { name: "Submit response" }).click();
   log("POC →", await toast(page, /Response submitted/));

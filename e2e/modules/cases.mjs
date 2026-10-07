@@ -4,12 +4,13 @@
 // Run on a fresh seed:  npm run seed && BASE=http://localhost:3202 node e2e/modules/cases.mjs
 // Uses the demo persona switch (Keycloak-backed) and reads the database only to assert or to add a due.
 import { chromium } from "playwright-core";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import pg from "pg";
 
 const BASE = process.env.BASE ?? "http://localhost:3202";
-const DB = process.env.DATABASE_URL ?? "postgres://pcp:pcp_demo_pw@localhost:5433/pcp_cases";
+// The same database as the app under test: DATABASE_URL, else the one in .env.local.
+const DB = process.env.DATABASE_URL ?? /^DATABASE_URL=(.*)$/m.exec(readFileSync(".env.local", "utf8"))?.[1];
 const OUT = process.env.SHOTS ?? path.resolve("e2e/screenshots/cases");
 const T = 25000;
 mkdirSync(OUT, { recursive: true });
