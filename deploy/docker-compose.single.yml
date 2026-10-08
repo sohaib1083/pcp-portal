@@ -1,0 +1,34 @@
+# Hosted demo on one VM: Caddy (HTTPS, automatic certificate) in front of the all-in-one PCP container
+# (deploy/hf: PostgreSQL, Keycloak, the app and Nginx on :7860). The demo data resets when the container restarts.
+name: pcp
+services:
+  pcp:
+    build: ./space
+    image: pcp-portal
+    restart: unless-stopped
+    environment:
+      PUBLIC_ORIGIN: https://${PUBLIC_HOST}
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST}
+    command: ["caddy", "reverse-proxy", "--from", "${PUBLIC_HOST}", "--to", "pcp:7860"]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      default:
+        # The app calls Keycloak at its public address; inside the stack that name points at Caddy.
+        aliases:
+          - ${PUBLIC_HOST}
+    depends_on:
+      - pcp
+
+volumes:
+  caddy_data:
+  caddy_config:

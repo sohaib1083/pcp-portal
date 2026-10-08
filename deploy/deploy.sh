@@ -2,11 +2,8 @@
 # Hosted demo on Google Cloud (free-trial credit): one VM running Caddy (HTTPS), Nginx, the app, Keycloak, PostgreSQL.
 #   deploy/deploy.sh first     create the VM, static IP, firewall, secrets; then build and start
 #   deploy/deploy.sh update    ship the current git HEAD and rebuild (data is kept)
-#   deploy/deploy.sh reset     restore the clean demo story (data and Keycloak users)
+#   deploy/deploy.sh reset     restart the portal from its clean demo data
 #   deploy/deploy.sh status    show the link and container state
-#   deploy/deploy.sh backup    take a backup now and list the ones kept (a daily one runs on its own)
-#   deploy/deploy.sh restore-test   restore the newest backup into a scratch database and compare it with the live one
-#   deploy/deploy.sh tunnel    open the Keycloak admin console at http://localhost:8088/auth/admin (SSH tunnel)
 #   deploy/deploy.sh destroy   delete the VM and its IP (stops all charges)
 # Settings: PROJECT (default: gcloud's project), ZONE (asia-south1-a, Mumbai), VM, MACHINE (e2-standard-2), PUBLIC_HOST.
 set -euo pipefail
@@ -17,7 +14,7 @@ REGION=${ZONE%-*}
 VM=${VM:-pcp-portal}
 MACHINE=${MACHINE:-e2-standard-2}
 G="gcloud --project $PROJECT"
-COMPOSE="sudo docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env"
+COMPOSE="sudo docker compose -f docker-compose.single.yml --env-file .env"
 remote() { $G compute ssh "$VM" --zone "$ZONE" --quiet --command "$1"; }
 wait_for() { for _ in $(seq 1 120); do curl -sf -o /dev/null --max-time 10 "$1" && return 0; sleep 5; done; echo "Timed out waiting for $1"; return 1; }
 host() { grep '^PUBLIC_HOST=' deploy/.env | cut -d= -f2; }
@@ -26,16 +23,16 @@ rand() { openssl rand -hex "${1:-24}"; }
 ship() {
   [ -f deploy/.env ] || { echo "Run deploy/deploy.sh first"; exit 1; }
   local H; H=$(host)
-  set -a; . deploy/.env; set +a
-  PUBLIC_ORIGIN="https://$H" REALM_OUT=deploy/realm-pcp.json node scripts/gen-realm.mjs >/dev/null
-  git archive --format=tar.gz -o /tmp/pcp-release.tgz HEAD
-  $G compute scp --zone "$ZONE" --quiet /tmp/pcp-release.tgz deploy/.env deploy/realm-pcp.json "$VM":/tmp/
+  # The same tested all-in-one package as deploy/hf: compiled app, no source code.
+  rm -rf /tmp/pcp-space && deploy/hf/build.sh /tmp/pcp-space
+  tar -czf /tmp/pcp-release.tgz -C /tmp pcp-space -C "$(pwd)/deploy" docker-compose.single.yml
+  $G compute scp --zone "$ZONE" --quiet /tmp/pcp-release.tgz deploy/.env "$VM":/tmp/
   remote "until [ -f /var/run/pcp-setup-done ]; do echo 'waiting for VM setup'; sleep 5; done
-    mkdir -p ~/pcp && tar -xzf /tmp/pcp-release.tgz -C ~/pcp && cp /tmp/.env /tmp/realm-pcp.json ~/pcp/deploy/
+    rm -rf ~/pcp && mkdir -p ~/pcp && tar -xzf /tmp/pcp-release.tgz -C ~/pcp && mv ~/pcp/pcp-space ~/pcp/space && cp /tmp/.env ~/pcp/.env
     cd ~/pcp && $COMPOSE up -d --build --remove-orphans"
   echo "Waiting for https://$H ..."
   wait_for "https://$H/login"
-  echo; echo "Live: https://$H   (sign-in page: https://$H/login, password for demo users: Demo@1234)"
+  echo; echo "Live: https://$H   (start at https://$H/coverage; demo password Demo@1234)"
 }
 
 case "${1:-status}" in
@@ -66,22 +63,15 @@ ENV
     ship
     ;;
   update) ship ;;
-  reset)
-    remote "cd ~/pcp && $COMPOSE stop keycloak && $COMPOSE exec -T postgres psql -U pcp -d pcp -qc 'DROP DATABASE IF EXISTS keycloak;' -c 'CREATE DATABASE keycloak;' \
-      && $COMPOSE up -d keycloak && until curl -sf -o /dev/null http://localhost:8088/auth/realms/pcp -H 'Host: localhost:8088'; do sleep 3; done \
-      && $COMPOSE exec -T app npx tsx scripts/seed.ts | tail -2"
-    ;;
+  reset) remote "cd ~/pcp && $COMPOSE restart pcp" && wait_for "https://$(host)/login" && echo "Demo data reset" ;;
   status)
     echo "https://$(host)"; curl -s -o /dev/null -w "login page: %{http_code} in %{time_total}s\n" "https://$(host)/login" || true
     remote "cd ~/pcp && $COMPOSE ps --format '{{.Service}}: {{.Status}}'"
     ;;
-  backup) remote "cd ~/pcp && $COMPOSE exec -T backup sh /backup.sh once && $COMPOSE exec -T backup sh /backup.sh list" ;;
-  restore-test) remote "cd ~/pcp && $COMPOSE exec -T backup sh /backup.sh restore-test" ;;
-  tunnel) echo "Keycloak admin: http://localhost:8088/auth/admin (user admin, password KC_ADMIN_PASSWORD in deploy/.env)"; $G compute ssh "$VM" --zone "$ZONE" -- -N -L 8088:localhost:8088 ;;
   destroy)
     $G compute instances delete "$VM" --zone "$ZONE" --quiet || true
     $G compute addresses delete pcp-ip --region "$REGION" --quiet || true
     $G compute firewall-rules delete pcp-allow-web --quiet || true
     ;;
-  *) echo "usage: deploy/deploy.sh first|update|reset|status|backup|restore-test|tunnel|destroy"; exit 1 ;;
+  *) echo "usage: deploy/deploy.sh first|update|reset|status|destroy"; exit 1 ;;
 esac
