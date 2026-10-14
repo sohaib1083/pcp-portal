@@ -6,7 +6,7 @@ import { getToken } from "next-auth/jwt";
 // 2. institution users stay in /institution, PCP users stay in /pcp
 // 3. protected pages are never cached, so Back after sign-out cannot show them
 // The proxy only READS the session token. It never re-issues the cookie, which would undo sign-out.
-const PROTECTED = /^\/(institution|pcp|certificate|home|student|pharmacist|onboarding)(\/|$)/;
+const PROTECTED = /^\/(institution|pcp|certificate|home|student|pharmacist|onboarding|province|faculty)(\/|$)/;
 // Each area belongs to one kind of user (see HOME_BY_KIND in lib/roles.ts).
 const AREAS: [prefix: string, allowed: (roles: string[]) => boolean][] = [
   ["/pcp", (r) => r.some((x) => x.startsWith("pcp_"))],
@@ -14,6 +14,8 @@ const AREAS: [prefix: string, allowed: (roles: string[]) => boolean][] = [
   ["/student", (r) => r.includes("student")],
   ["/pharmacist", (r) => r.includes("pharmacist")],
   ["/onboarding", (r) => r.includes("inst_applicant")],
+  ["/province", (r) => r.includes("provincial_council")],
+  ["/faculty", (r) => r.includes("faculty")],
 ];
 
 export default async function proxy(req: NextRequest) {

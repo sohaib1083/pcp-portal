@@ -31,8 +31,7 @@ import {
   ScheduleOutlined,
   SolutionOutlined,
   TeamOutlined,
-  UsergroupAddOutlined,
-} from "@ant-design/icons";
+  UsergroupAddOutlined, ExceptionOutlined, InboxOutlined, EnvironmentOutlined } from "@ant-design/icons";
 import { logoutAction } from "@/app/actions/auth";
 import { Avatar, Logo, timeAgo } from "./common";
 import IdleTimeout from "./IdleTimeout";
@@ -61,6 +60,9 @@ const ICONS: Record<string, React.ReactNode> = {
   rules: <SettingOutlined />,
   accounts: <ReconciliationOutlined />,
   record: <IdcardOutlined />,
+  litigation: <ExceptionOutlined />,
+  correspondence: <InboxOutlined />,
+  region: <EnvironmentOutlined />,
   student: <StudentIcon />,
 };
 

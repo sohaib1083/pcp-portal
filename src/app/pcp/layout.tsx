@@ -32,6 +32,8 @@ export default async function PcpLayout({ children }: { children: React.ReactNod
   if (can(r, "pcp.annual.review") || r.includes("pcp_admin")) nav.push({ href: "/pcp/annual-returns", label: "Annual returns", icon: "annual", group: "Casework" });
   if (can(r, "pcp.council.manage") || can(r, "pcp.app.view")) nav.push({ href: "/pcp/council", label: "Council meetings", icon: "council", group: "Casework" });
   if (can(r, "pcp.appeals.review")) nav.push({ href: "/pcp/appeals", label: "Appeals", icon: "appeals", group: "Casework" });
+  if (can(r, "pcp.litigation.view")) nav.push({ href: "/pcp/litigation", label: "Court cases", icon: "litigation", group: "Casework" });
+  if (can(r, "pcp.correspondence.view")) nav.push({ href: "/pcp/correspondence", label: "Correspondence", icon: "correspondence", group: "Casework" });
   if (can(r, "pcp.helpdesk")) nav.push({ href: "/pcp/helpdesk", label: "Help desk", icon: "help", group: "Casework" });
   if (can(r, "pcp.app.view")) nav.push({ href: "/pcp/institutions", label: "Institutions", icon: "institutions", group: "Registry" });
   if (can(r, "pcp.pharmacists.manage") || can(r, "pcp.dashboard")) nav.push({ href: "/pcp/pharmacists", label: "Pharmacist register", icon: "pharmacists", group: "Registry" });

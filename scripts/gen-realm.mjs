@@ -29,6 +29,10 @@ const ROLES = [
   ["pcp_officer", "PCP Officer: processes applications"],
   ["pcp_inspector", "PCP Inspector: assigned inspections only"],
   ["pcp_secretary", "PCP Secretary: council decisions and certificates"],
+  ["pcp_technical", "PCP Technical officer: technical review, PG proformas"],
+  ["pcp_legal", "PCP Legal officer: court cases and litigation"],
+  ["provincial_council", "Provincial council officer: one province"],
+  ["faculty", "Faculty member (own academic profile)"],
 ];
 // Production: PUBLIC_ORIGIN=https://host, client secrets from env, REALM_OUT=path (see deploy/).
 const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN?.replace(/\/+$/, "");
@@ -64,6 +68,13 @@ const users = [
   user("pcp.coordinator", "Bilal", "Ahmed", "pcp_coordinator"),
   user("pcp.accounts", "Sadia", "Raza", "pcp_accounts"),
   user("pcp.verification", "Kashif", "Iqbal", "pcp_verification"),
+  user("pcp.technical", "Faisal", "Rehman", "pcp_technical"),
+  user("pcp.legal", "Amna", "Chaudhry", "pcp_legal"),
+  // Provincial councils (RFP 4.1.2): each sees one province
+  user("punjab.council", "Tahir", "Mahmood", "provincial_council"),
+  user("sindh.council", "Shazia", "Abbasi", "provincial_council"),
+  // A teacher with their own login, linked to their PCP-FAC record (RFP 4.1.2)
+  user("fac.noor", "Noor Rabia", "Ahmed", "faculty"),
   // External users
   user("student.ruh", "Areeba", "Noor", "student"),
   user("student.rbu", "Hamza", "Iqbal", "student"),
