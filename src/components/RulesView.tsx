@@ -14,7 +14,9 @@ type Rule = { key: string; versions: Version[] };
 const CATEGORY: [test: (k: string) => boolean, label: string, color: string][] = [
   [(k) => k.startsWith("noc."), "NOC thresholds", "blue"],
   [(k) => k.startsWith("pg."), "Postgraduate", "geekblue"],
+  [(k) => k === "inspection.team", "Inspection teams", "magenta"],
   [(k) => k.startsWith("inspection."), "Inspection scoring", "magenta"],
+  [(k) => k.startsWith("committee."), "Council and committees", "lime"],
   [(k) => k === "fees", "Fees", "gold"],
   [(k) => k.startsWith("ref."), "Reference list", "green"],
   [(k) => k.startsWith("onboarding."), "Onboarding", "purple"],
@@ -76,6 +78,15 @@ function summary(key: string, v: unknown): string {
   if (key === "inspection.scoring" && v && typeof v === "object") {
     const r = v as { maxScore?: number; passPercent?: number; weights?: Record<string, number> };
     return `Score 0 to ${r.maxScore ?? 5} per line · pass mark ${r.passPercent ?? "-"}% · ${Object.keys(r.weights ?? {}).length} weighted lines`;
+  }
+  if (key === "inspection.team" && v && typeof v === "object") {
+    const r = v as { members?: number; noticeDays?: number; visitWithinDays?: number; maxOpenVisits?: number };
+    return `Lead + ${r.members ?? "-"} members · ${r.noticeDays ?? "-"} days' notice · visit within ${r.visitWithinDays ?? "-"} days of the technical review · at most ${r.maxOpenVisits ?? "-"} open visits each`;
+  }
+  if (key === "committee.quorum" && v && typeof v === "object") {
+    const r = v as { default?: { percent?: number; minimum?: number }; committees?: Record<string, { percent?: number; minimum?: number }> };
+    const c = r.committees?.Council;
+    return `${r.default?.percent ?? "-"}% of voting members, at least ${r.default?.minimum ?? "-"}${c ? ` · Council: ${c.percent ?? r.default?.percent}%, at least ${c.minimum ?? r.default?.minimum}` : ""}`;
   }
   if (key.startsWith("noc.") && v && typeof v === "object") {
     const r = v as Record<string, number>;

@@ -11,6 +11,7 @@ import seedGaps from "./gaps";
 import seedGovernance from "./governance";
 import seedPeople from "./people";
 import seedPg from "./pg";
+import seedRfpGaps from "./rfp-gaps";
 
 export async function seedModules() {
   for (const [name, fn] of [
@@ -24,7 +25,8 @@ export async function seedModules() {
     ["gaps", seedGaps],
     ["governance", seedGovernance],
     ["people", seedPeople],
-    ["pg", seedPg], // postgraduate accreditation, technical officer, inspection scores (runs last)
+    ["pg", seedPg], // postgraduate accreditation, technical officer, inspection scores
+    ["rfp-gaps", seedRfpGaps], // team suggestion rule and panel, members register, attendance (runs last: needs the meetings)
   ] as const) {
     const note = await fn();
     console.log(`  module ${name}: ${note ?? "nothing to seed"}`);

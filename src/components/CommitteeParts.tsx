@@ -71,7 +71,7 @@ function ResolutionModal({ it, council, onClose }: { it: AgendaItem; council: bo
 }
 
 /** An agenda item that gets a recommendation or a recorded outcome, not a decision. */
-export function GeneralItemCard({ it, status, council, canManage, run, pending }: { it: AgendaItem; status: string; council: boolean; canManage: boolean; run: (fn: () => Promise<ActionResult>) => void; pending: boolean }) {
+export function GeneralItemCard({ it, status, council, canManage, run, pending, recusal }: { it: AgendaItem; status: string; council: boolean; canManage: boolean; run: (fn: () => Promise<ActionResult>) => void; pending: boolean; recusal?: React.ReactNode }) {
   const [resolving, setResolving] = useState(false);
   const [label, color] = KIND_TAG[it.kind] ?? ["Item", "default"];
   const href = it.kind === "case" ? `/pcp/applications/${it.ref}` : it.kind === "appeal" ? `/pcp/appeals/${it.ref}` : it.kind === "court" ? `/pcp/litigation/${it.ref}` : it.kind === "letter" ? `/pcp/correspondence/${it.ref}` : null;
@@ -112,6 +112,7 @@ export function GeneralItemCard({ it, status, council, canManage, run, pending }
         </div>
       }
     >
+      {recusal}
       <Row gutter={[18, 14]}>
         <Col xs={24} lg={13}>
           <div style={{ display: "grid", gap: 10, fontSize: 13 }}>

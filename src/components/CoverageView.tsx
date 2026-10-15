@@ -18,9 +18,11 @@ function Try({ t, quick }: { t?: TryIt; quick: boolean }) {
   const p = personaFor(t.as);
   if (!quick)
     return (
-      <Link className="cov-btn" href="/login">
+      <Link className="cov-btn" href={`/login?next=${encodeURIComponent(t.to)}`} title={`Sign in as ${t.as}, then this opens ${t.to}`}>
         Sign in
-        <small>as {p?.role ?? t.as}</small>
+        <small>
+          as <span className="mono">{t.as}</span>
+        </small>
       </Link>
     );
   return (
@@ -43,7 +45,7 @@ export default function CoverageView({ quick, signedIn }: { quick: boolean; sign
     <PublicFrame
       signedIn={signedIn}
       title="The working guide, built"
-      sub={`Every point of PCP's working guide "PCP digitisation", sections 1 to 14, and the additions in the October 2026 RFP, with the screen that does it. Try it signs you in as the right person and opens that screen.`}
+      sub={`Every point of PCP's working guide "PCP digitisation", sections 1 to 14, and the additions in the October 2026 RFP, with the screen that does it${quick ? ". Try it signs you in as the right person and opens that screen." : " and the account to sign in with."}`}
     >
       <div className="cov-summary">
         <div className="cov-card">
@@ -60,9 +62,15 @@ export default function CoverageView({ quick, signedIn }: { quick: boolean; sign
         </div>
         <div className="cov-card cov-howto">
           <div className="cov-eyebrow">How to try it</div>
-          <p>
-            Press <b>Try it</b> on any line. No password is needed. To sign in yourself, open <Link href="/login">the sign-in page</Link>; every demo user&apos;s password is <code>Demo@1234</code>.
-          </p>
+          {quick ? (
+            <p>
+              Press <b>Try it</b> on any line. No password is needed. To sign in yourself, open <Link href="/login">the sign-in page</Link>; every demo user&apos;s password is <code>Demo@1234</code>.
+            </p>
+          ) : (
+            <p>
+              Each line names the account that does that step. Press <b>Sign in</b>, use that account&apos;s password from the credentials sheet you received, and the screen opens. The POC guide walks through the flow in order.
+            </p>
+          )}
           <p>
             <b>Simulated here:</b> bank and Raast payments, the bank statement, NADRA, the university and HEC degree check, SMS and email. Messages are stored under Messages instead of being sent. All people, CNICs and institutions are fictional.
           </p>

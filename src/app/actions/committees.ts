@@ -11,6 +11,7 @@ import { audit } from "@/lib/audit";
 import { COUNCIL, fmtDay, lockAgenda } from "@/lib/council";
 import { pcpStaff, today } from "@/lib/governance";
 import { courtShort } from "@/lib/governance-shared";
+import { assertQuorum, recordRecusals } from "@/lib/members";
 import { can } from "@/lib/roles";
 import { requirePermission, requireUser } from "@/lib/session";
 import { notify } from "@/lib/util";
@@ -122,9 +123,12 @@ export async function recordItemResolution(itemId: number, text: string): Promis
     if (t.length < 5) return fail(council ? "Record what the council resolved (at least a few words)." : "Write the committee's recommendation (at least a few words).");
     const app = item.applicationId ? await db.query.applications.findFirst({ where: eq(schema.applications.id, item.applicationId) }) : null;
     const appeal = item.appealId ? await db.query.appeals.findFirst({ where: eq(schema.appeals.id, item.appealId) }) : null;
+    // A quorum of voting members from the members register, after any member with a declared conflict steps out.
+    await assertQuorum(db, m.id, item.id);
     await db.transaction(async (tx) => {
       await tx.update(schema.councilItems).set({ resolution: t, resolvedBy: user.username, resolvedAt: new Date() }).where(eq(schema.councilItems.id, item.id));
-      await audit(tx, { actor: user.username, action: "committee.item.resolved", entity: "council_meeting", entityId: m.ref, details: { itemId: item.id, committee: m.committee, case: app?.ref ?? appeal?.ref ?? null, resolution: t } });
+      const recused = await recordRecusals(tx, m.id, item.id);
+      await audit(tx, { actor: user.username, action: "committee.item.resolved", entity: "council_meeting", entityId: m.ref, details: { itemId: item.id, committee: m.committee, case: app?.ref ?? appeal?.ref ?? null, resolution: t, ...(recused.length ? { recused: recused.map((r) => r.reason) } : {}) } });
       // A recommendation on a case reaches its officer, who carries it to the Council.
       if (app?.assignedOfficer) await notify(tx, `user:${app.assignedOfficer}`, `${m.committee} recommendation on ${app.ref}`, t, `/pcp/applications/${app.ref}`);
     });

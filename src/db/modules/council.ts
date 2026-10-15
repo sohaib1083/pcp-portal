@@ -1,5 +1,5 @@
 // Module: council meetings, appeals and help desk (guide section 14). Owner: council work.
-import { boolean, date, integer, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, date, integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const councilMeetings = pgTable("council_meetings", {
   id: serial("id").primaryKey(),
@@ -89,3 +89,82 @@ export const ticketReplies = pgTable("ticket_replies", {
   internal: boolean("internal").notNull().default(false), // PCP-only note
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ---------- Council and committee members register (Annexure-III "Faculty, Members Ledger") ----------
+
+/**
+ * A member of the Council or of a committee. External members (nominees of HEC, a province, a university)
+ * never sign in; a PCP officer who sits on a committee is linked by `username`.
+ */
+export const councilMembers = pgTable("council_members", {
+  id: serial("id").primaryKey(),
+  ref: text("ref").notNull().unique(), // MBR-0001
+  honorific: text("honorific"), // Prof. Dr. | Dr. | Mr. | Ms.
+  name: text("name").notNull(),
+  designation: text("designation").notNull(),
+  nominatingBody: text("nominating_body").notNull(), // e.g. Higher Education Commission, Government of Punjab, elected by registered pharmacists
+  category: text("category").notNull().default("NOMINATED"), // NOMINATED | ELECTED | EX_OFFICIO | CO_OPTED
+  province: text("province"),
+  email: text("email"),
+  mobile: text("mobile"),
+  username: text("username"), // PCP staff login, when the member has one
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** A seat on the Council or a committee, for a term. A member can hold several seats. */
+export const committeeSeats = pgTable("committee_seats", {
+  id: serial("id").primaryKey(),
+  memberId: integer("member_id").notNull(),
+  committee: text("committee").notNull(), // Council | a committee from the ref.committees rule
+  role: text("role").notNull().default("MEMBER"), // CHAIR | VICE_CHAIR | MEMBER | SECRETARY (ex officio, does not vote)
+  termStart: date("term_start").notNull(),
+  termEnd: date("term_end"),
+  status: text("status").notNull().default("ACTIVE"), // ACTIVE | ENDED (a seat past its term end reads as expired)
+  endedOn: date("ended_on"),
+  endReason: text("end_reason"),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** A member's declared conflict of interest with an institution: the member is recused from its agenda items. */
+export const memberConflicts = pgTable("member_conflicts", {
+  id: serial("id").primaryKey(),
+  memberId: integer("member_id").notNull(),
+  institutionId: integer("institution_id").notNull(),
+  reason: text("reason").notNull(),
+  active: boolean("active").notNull().default(true),
+  recordedBy: text("recorded_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  withdrawnBy: text("withdrawn_by"),
+  withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
+});
+
+/** Attendance at a meeting, from the register. Members not marked when the session starts are recorded as present. */
+export const meetingAttendance = pgTable(
+  "meeting_attendance",
+  {
+    id: serial("id").primaryKey(),
+    meetingId: integer("meeting_id").notNull(),
+    memberId: integer("member_id").notNull(),
+    present: boolean("present").notNull(),
+    recordedBy: text("recorded_by").notNull(),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("meeting_attendance_once").on(t.meetingId, t.memberId)],
+);
+
+/** A recusal recorded on an agenda item (written when the item is decided and when the minutes are filed). */
+export const itemRecusals = pgTable(
+  "item_recusals",
+  {
+    id: serial("id").primaryKey(),
+    meetingId: integer("meeting_id").notNull(),
+    itemId: integer("item_id").notNull(),
+    memberId: integer("member_id").notNull(),
+    reason: text("reason").notNull(),
+    present: boolean("present").notNull().default(true),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("item_recusal_once").on(t.itemId, t.memberId)],
+);

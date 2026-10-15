@@ -4,8 +4,9 @@ import PcpApplicationView from "@/components/PcpApplicationView";
 import { db, schema } from "@/db";
 import { loadApplication } from "@/lib/appdetail";
 import { audit } from "@/lib/audit";
+import { OVERRIDE_PERMISSION } from "@/lib/overrides";
 import { requireUser } from "@/lib/session";
-import { can } from "@/lib/roles";
+import { ROLE_LABELS, can } from "@/lib/roles";
 
 export default async function PcpApplicationPage({ params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params;
@@ -27,6 +28,15 @@ export default async function PcpApplicationPage({ params }: { params: Promise<{
   const declared = d.inst
     ? await db.select().from(schema.conflictDeclarations).where(and(eq(schema.conflictDeclarations.institutionId, d.inst.id), eq(schema.conflictDeclarations.active, true)))
     : [];
+  // The Super Administrator's override panel (RFP 4.1.2): officers to reassign to, and whether a council review is possible.
+  const override = can(user.roles, OVERRIDE_PERMISSION)
+    ? {
+        officers: (await db.select().from(schema.staff).where(eq(schema.staff.active, true)))
+          .filter((s) => can([s.role], "pcp.app.scrutiny"))
+          .map((s) => ({ username: s.username, name: s.displayName, role: ROLE_LABELS[s.role] ?? s.role })),
+        hasReport: d.inspections.some((i) => i.status === "SUBMITTED"),
+      }
+    : null;
   return (
     <PcpApplicationView
       d={d}
@@ -41,6 +51,7 @@ export default async function PcpApplicationPage({ params }: { params: Promise<{
       }}
       inspectors={inspectors.map((i) => ({ username: i.username, name: i.displayName, province: i.province ?? "" }))}
       declared={declared.map((x) => ({ username: x.username, reason: x.reason }))}
+      override={override}
     />
   );
 }

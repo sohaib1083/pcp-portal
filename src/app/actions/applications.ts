@@ -9,6 +9,7 @@ import { confirmPayment, createChallan } from "@/lib/payments";
 import { requireOtp } from "@/lib/otp";
 import { audit } from "@/lib/audit";
 import { normalizeName } from "@/lib/names";
+import { activeHold } from "@/lib/overrides";
 import { inField, pgTypeRule, supervisorEligibility, supervisorsRequired } from "@/lib/pg";
 import { feeFor, getPgRule, getRule, refreshChecks, runChecks, subjectRequirements, suggestAssignment, type ProgramRule } from "@/lib/rules";
 import { requireInstitution } from "@/lib/session";
@@ -510,6 +511,7 @@ export async function respondDeficiency(deficiencyId: number, note: string): Pro
   if (!note || note.length < 5) return { ok: false, message: "Describe what you did to fix it.", level: "error" };
   const app = await db.query.applications.findFirst({ where: eq(schema.applications.id, def.applicationId) });
   if (!app) return { ok: false, message: "Not found", level: "error" };
+  if (await activeHold(db, app.id)) return { ok: false, message: `${app.ref} is on administrative hold. PCP will tell you when the hold is released; send your response then.`, level: "error" };
   const clock = await clockFor("RESPONDED");
   await db.transaction(async (tx) => {
     await tx.update(schema.deficiencies).set({ status: "RESPONDED", responseNote: note, respondedBy: user.username, respondedAt: new Date() }).where(eq(schema.deficiencies.id, def.id));

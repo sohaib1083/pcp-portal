@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Col, DatePicker, Empty, Form, Input, Modal, Row, Segmented, Select, Table, Tag } from "antd";
+import { App, Button, Card, Col, DatePicker, Empty, Form, Input, Modal, Row, Segmented, Select, Table, Tabs, Tag } from "antd";
 import { CalendarOutlined, CheckSquareOutlined, FileDoneOutlined, PlusOutlined, ScheduleOutlined, SolutionOutlined, TeamOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { createMeeting } from "@/app/actions/council";
@@ -23,7 +23,22 @@ type OpenAction = { id: number; title: string; owner: string; dueDate: string; d
 const COUNCIL = "Council";
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
-export default function CouncilMeetings({ data, committees, actions, canManage }: { data: Overview; committees: Committee[]; actions: OpenAction[]; canManage: boolean }) {
+export default function CouncilMeetings({
+  data,
+  committees,
+  actions,
+  canManage,
+  tab = "meetings",
+  members,
+}: {
+  data: Overview;
+  committees: Committee[];
+  actions: OpenAction[];
+  canManage: boolean;
+  tab?: "meetings" | "members";
+  /** The members register (Annexure-III "Members Ledger"), rendered in its own tab. */
+  members?: React.ReactNode;
+}) {
   const { message } = App.useApp();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -70,7 +85,7 @@ export default function CouncilMeetings({ data, committees, actions, canManage }
               ]}
               note={canManage ? undefined : "Only the Secretary manages meetings. You can read the agendas and minutes, and update action points you own."}
             />
-            {canManage ? (
+            {canManage && tab === "meetings" ? (
               <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
                 New meeting
               </Button>
@@ -78,142 +93,156 @@ export default function CouncilMeetings({ data, committees, actions, canManage }
           </>
         }
       />
-      <Row gutter={[14, 14]} style={{ marginBottom: 18 }}>
-        <Col xs={12} lg={6}>
-          {data.next ? (
-            <Link href={`/pcp/council/${data.next.ref}`}>
-              <StatCard clickable label="Next council meeting" icon={<CalendarOutlined />} value={fmtDate(data.next.date)} hint={`${data.next.ref} · ${data.next.status === "IN_SESSION" ? "in session" : "planned"}`} />
-            </Link>
-          ) : (
-            <StatCard label="Next council meeting" icon={<CalendarOutlined />} value="None planned" hint={canManage ? "Create one with New meeting" : "The Secretary plans meetings"} />
-          )}
-        </Col>
-        <Col xs={12} lg={6}>
-          <StatCard label="Cases to schedule" icon={<SolutionOutlined />} tone={data.ready.some((r) => r.kind === "case") ? "warn" : "brand"} value={data.ready.filter((r) => r.kind === "case").length} hint="Awaiting a decision, not on an agenda" />
-        </Col>
-        <Col xs={12} lg={6}>
-          <StatCard label="Appeals to schedule" icon={<ScheduleOutlined />} tone="violet" value={data.ready.filter((r) => r.kind === "appeal").length} hint={`Ready for council · ${data.decisionsThisYear} decisions this year`} />
-        </Col>
-        <Col xs={12} lg={6}>
-          <StatCard label="Open action points" icon={<CheckSquareOutlined />} tone={overdue ? "bad" : "info"} value={actions.length} hint={overdue ? `${overdue} overdue` : "From council and committee meetings"} />
-        </Col>
-      </Row>
-
-      {data.ready.length ? (
-        <Card size="small" title="Ready for council, not on an agenda yet" style={{ marginBottom: 16 }} extra={<span className="faint" style={{ fontSize: 12 }}>{canManage ? "Open a planned council meeting and build its agenda" : "The Secretary adds these when building the next agenda"}</span>}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {data.ready.map((r) => (
-              <Link key={r.ref} href={r.kind === "case" ? `/pcp/applications/${r.ref}` : `/pcp/appeals/${r.ref}`} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "8px 12px", background: "#fff", display: "inline-flex", flexDirection: "column", minWidth: 200 }}>
-                <span className="mono" style={{ fontWeight: 600, fontSize: 13 }}>
-                  {r.ref}
-                </span>
-                <span style={{ fontSize: 12.5, color: "var(--ink-2)" }}>
-                  {r.inst} · {r.label}
-                </span>
-                <span className="faint" style={{ fontSize: 11.5 }}>
-                  Ready {timeAgo(r.since)}
-                </span>
-              </Link>
-            ))}
-          </div>
-        </Card>
-      ) : null}
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 10, marginBottom: 16 }} data-testid="committees">
-        {committees.map((c) => {
-          const next = data.meetings.filter((m) => m.committee === c.name && m.status !== "CLOSED" && m.date >= today).sort((a, b) => a.date.localeCompare(b.date))[0];
-          const active = filter === c.name;
-          return (
-            <button
-              key={c.name}
-              type="button"
-              onClick={() => setFilter(active ? "all" : c.name)}
-              title={c.remit}
-              style={{ textAlign: "left", cursor: "pointer", border: `1px solid ${active ? "var(--brand)" : "var(--line)"}`, boxShadow: active ? "0 0 0 3px #e8f3ee" : undefined, borderRadius: 12, padding: "10px 12px", background: "#fff", display: "grid", gap: 2, font: "inherit" }}
-            >
-              <span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 13.5 }}>
-                <TeamOutlined style={{ color: c.decides ? "var(--brand)" : "#5b3cc4" }} /> {c.name}
-              </span>
-              <span className="faint" style={{ fontSize: 12 }}>
-                {c.decides ? `Decides · run by the Secretary${c.chairName ? `, ${c.chairName}` : ""}` : `Recommends · ${plural(c.memberNames.length, "member")}${c.chairName ? ` · chair ${c.chairName}` : ""}`}
-              </span>
-              <span style={{ fontSize: 12, color: next ? "var(--ink-2)" : "var(--faint)" }}>{next ? `Next: ${next.ref}, ${fmtDate(next.date)}` : "No meeting planned"}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <Card
-        styles={{ body: { padding: 0 } }}
-        title={
-          <div style={{ padding: "8px 0" }}>
-            <Segmented value={filter} onChange={(v) => setFilter(String(v))} options={[{ value: "all", label: "All meetings" }, ...committees.map((c) => ({ value: c.name, label: c.name === COUNCIL ? "Council" : c.name.replace(" Committee", "") }))]} />
-          </div>
-        }
-      >
-        <Table
-          rowKey="ref"
-          dataSource={rows}
-          pagination={{ pageSize: 15, hideOnSinglePage: true }}
-          locale={{ emptyText: <Empty description={canManage ? "No meetings yet. Create the first one with New meeting." : "No meetings yet."} /> }}
-          columns={[
-            {
-              title: "Meeting",
-              dataIndex: "ref",
-              render: (v, r) => (
-                <Link href={`/pcp/council/${v}`} style={{ display: "inline-flex", flexDirection: "column" }}>
-                  <span className="mono" style={{ fontWeight: 600, fontSize: 13 }}>
-                    {v}
-                  </span>
-                  <span style={{ color: "var(--ink-2)", fontSize: 12.5 }}>{r.title}</span>
+      <Tabs
+        activeKey={tab}
+        onChange={(k) => router.push(k === "members" ? "/pcp/council?tab=members" : "/pcp/council")}
+        items={[
+          { key: "meetings", label: "Meetings" },
+          { key: "members", label: <span data-testid="tab-members">Members</span> },
+        ]}
+        style={{ marginBottom: 4 }}
+      />
+      {tab === "members" ? members : null}
+      {tab === "meetings" ? (
+        <>
+          <Row gutter={[14, 14]} style={{ marginBottom: 18 }}>
+            <Col xs={12} lg={6}>
+              {data.next ? (
+                <Link href={`/pcp/council/${data.next.ref}`}>
+                  <StatCard clickable label="Next council meeting" icon={<CalendarOutlined />} value={fmtDate(data.next.date)} hint={`${data.next.ref} · ${data.next.status === "IN_SESSION" ? "in session" : "planned"}`} />
                 </Link>
-              ),
-            },
-            { title: "Committee", dataIndex: "committee", render: (v) => <Tag color={v === COUNCIL ? "green" : "purple"} style={{ margin: 0 }}>{v}</Tag> },
-            { title: "Date", dataIndex: "date", render: (v) => <span style={{ whiteSpace: "nowrap" }}>{fmtDate(v)}</span>, sorter: (a, b) => a.date.localeCompare(b.date) },
-            { title: "Status", dataIndex: "status", render: (v) => <ModuleStatus status={v} /> },
-            {
-              title: "Agenda",
-              render: (_, r) =>
-                r.items ? (
-                  <span>
-                    {[r.cases ? plural(r.cases, "case") : "", r.appeals ? plural(r.appeals, "appeal") : "", r.others ? plural(r.others, "other item") : ""].filter(Boolean).join(", ")}
-                  </span>
-                ) : (
-                  <span className="faint">Empty</span>
-                ),
-            },
-            {
-              title: "Done",
-              align: "right",
-              render: (_, r) => (
-                <span className="tnum" title={r.committee === COUNCIL ? "Decided or noted" : "Recommendations recorded"} style={{ fontWeight: 600, color: r.items && r.decided === r.items ? "var(--good)" : "var(--ink)" }}>
-                  {r.decided} / {r.items}
-                </span>
-              ),
-            },
-            { title: "Action points", align: "right", render: (_, r) => (r.actions ? <span className="tnum">{r.actionsOpen ? `${r.actionsOpen} open of ${r.actions}` : `${r.actions} done`}</span> : <span className="faint">—</span>) },
-            { title: "Minutes", render: (_, r) => (r.minutesDocumentId ? <DocLink id={r.minutesDocumentId} label="Minutes (PDF)" /> : <span className="faint">{r.status === "CLOSED" ? "—" : "After closing"}</span>) },
-          ]}
-        />
-      </Card>
+              ) : (
+                <StatCard label="Next council meeting" icon={<CalendarOutlined />} value="None planned" hint={canManage ? "Create one with New meeting" : "The Secretary plans meetings"} />
+              )}
+            </Col>
+            <Col xs={12} lg={6}>
+              <StatCard label="Cases to schedule" icon={<SolutionOutlined />} tone={data.ready.some((r) => r.kind === "case") ? "warn" : "brand"} value={data.ready.filter((r) => r.kind === "case").length} hint="Awaiting a decision, not on an agenda" />
+            </Col>
+            <Col xs={12} lg={6}>
+              <StatCard label="Appeals to schedule" icon={<ScheduleOutlined />} tone="violet" value={data.ready.filter((r) => r.kind === "appeal").length} hint={`Ready for council · ${data.decisionsThisYear} decisions this year`} />
+            </Col>
+            <Col xs={12} lg={6}>
+              <StatCard label="Open action points" icon={<CheckSquareOutlined />} tone={overdue ? "bad" : "info"} value={actions.length} hint={overdue ? `${overdue} overdue` : "From council and committee meetings"} />
+            </Col>
+          </Row>
 
-      {actions.length ? (
-        <Card size="small" title={<span><CheckSquareOutlined style={{ color: "var(--brand)", marginRight: 8 }} />Open action points</span>} style={{ marginTop: 16 }} styles={{ body: { padding: 0 } }} data-testid="open-actions">
-          <Table
-            size="small"
-            rowKey="id"
-            pagination={{ pageSize: 8, hideOnSinglePage: true }}
-            dataSource={actions}
-            columns={[
-              { title: "Action point", dataIndex: "title" },
-              { title: "Meeting", render: (_, a) => <Link href={`/pcp/council/${a.meetingRef}#actions`} className="mono">{a.meetingRef}</Link> },
-              { title: "Owner", dataIndex: "owner" },
-              { title: "Due", render: (_, a) => <span style={{ color: a.days < 0 ? "#b4141f" : undefined }}>{fmtDate(a.dueDate)} <span className="faint">· {relDays(a.days)}</span></span> },
-              { title: "Status", render: (_, a) => <TaskStatus status={a.status} overdue={a.days < 0} /> },
-            ]}
-          />
-        </Card>
+          {data.ready.length ? (
+            <Card size="small" title="Ready for council, not on an agenda yet" style={{ marginBottom: 16 }} extra={<span className="faint" style={{ fontSize: 12 }}>{canManage ? "Open a planned council meeting and build its agenda" : "The Secretary adds these when building the next agenda"}</span>}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {data.ready.map((r) => (
+                  <Link key={r.ref} href={r.kind === "case" ? `/pcp/applications/${r.ref}` : `/pcp/appeals/${r.ref}`} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "8px 12px", background: "#fff", display: "inline-flex", flexDirection: "column", minWidth: 200 }}>
+                    <span className="mono" style={{ fontWeight: 600, fontSize: 13 }}>
+                      {r.ref}
+                    </span>
+                    <span style={{ fontSize: 12.5, color: "var(--ink-2)" }}>
+                      {r.inst} · {r.label}
+                    </span>
+                    <span className="faint" style={{ fontSize: 11.5 }}>
+                      Ready {timeAgo(r.since)}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </Card>
+          ) : null}
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 10, marginBottom: 16 }} data-testid="committees">
+            {committees.map((c) => {
+              const next = data.meetings.filter((m) => m.committee === c.name && m.status !== "CLOSED" && m.date >= today).sort((a, b) => a.date.localeCompare(b.date))[0];
+              const active = filter === c.name;
+              return (
+                <button
+                  key={c.name}
+                  type="button"
+                  onClick={() => setFilter(active ? "all" : c.name)}
+                  title={c.remit}
+                  style={{ textAlign: "left", cursor: "pointer", border: `1px solid ${active ? "var(--brand)" : "var(--line)"}`, boxShadow: active ? "0 0 0 3px #e8f3ee" : undefined, borderRadius: 12, padding: "10px 12px", background: "#fff", display: "grid", gap: 2, font: "inherit" }}
+                >
+                  <span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 13.5 }}>
+                    <TeamOutlined style={{ color: c.decides ? "var(--brand)" : "#5b3cc4" }} /> {c.name}
+                  </span>
+                  <span className="faint" style={{ fontSize: 12 }}>
+                    {c.decides ? `Decides · run by the Secretary${c.chairName ? `, ${c.chairName}` : ""}` : `Recommends · ${plural(c.memberNames.length, "member")}${c.chairName ? ` · chair ${c.chairName}` : ""}`}
+                  </span>
+                  <span style={{ fontSize: 12, color: next ? "var(--ink-2)" : "var(--faint)" }}>{next ? `Next: ${next.ref}, ${fmtDate(next.date)}` : "No meeting planned"}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <Card
+            styles={{ body: { padding: 0 } }}
+            title={
+              <div style={{ padding: "8px 0" }}>
+                <Segmented value={filter} onChange={(v) => setFilter(String(v))} options={[{ value: "all", label: "All meetings" }, ...committees.map((c) => ({ value: c.name, label: c.name === COUNCIL ? "Council" : c.name.replace(" Committee", "") }))]} />
+              </div>
+            }
+          >
+            <Table
+              rowKey="ref"
+              dataSource={rows}
+              pagination={{ pageSize: 15, hideOnSinglePage: true }}
+              locale={{ emptyText: <Empty description={canManage ? "No meetings yet. Create the first one with New meeting." : "No meetings yet."} /> }}
+              columns={[
+                {
+                  title: "Meeting",
+                  dataIndex: "ref",
+                  render: (v, r) => (
+                    <Link href={`/pcp/council/${v}`} style={{ display: "inline-flex", flexDirection: "column" }}>
+                      <span className="mono" style={{ fontWeight: 600, fontSize: 13 }}>
+                        {v}
+                      </span>
+                      <span style={{ color: "var(--ink-2)", fontSize: 12.5 }}>{r.title}</span>
+                    </Link>
+                  ),
+                },
+                { title: "Committee", dataIndex: "committee", render: (v) => <Tag color={v === COUNCIL ? "green" : "purple"} style={{ margin: 0 }}>{v}</Tag> },
+                { title: "Date", dataIndex: "date", render: (v) => <span style={{ whiteSpace: "nowrap" }}>{fmtDate(v)}</span>, sorter: (a, b) => a.date.localeCompare(b.date) },
+                { title: "Status", dataIndex: "status", render: (v) => <ModuleStatus status={v} /> },
+                {
+                  title: "Agenda",
+                  render: (_, r) =>
+                    r.items ? (
+                      <span>
+                        {[r.cases ? plural(r.cases, "case") : "", r.appeals ? plural(r.appeals, "appeal") : "", r.others ? plural(r.others, "other item") : ""].filter(Boolean).join(", ")}
+                      </span>
+                    ) : (
+                      <span className="faint">Empty</span>
+                    ),
+                },
+                {
+                  title: "Done",
+                  align: "right",
+                  render: (_, r) => (
+                    <span className="tnum" title={r.committee === COUNCIL ? "Decided or noted" : "Recommendations recorded"} style={{ fontWeight: 600, color: r.items && r.decided === r.items ? "var(--good)" : "var(--ink)" }}>
+                      {r.decided} / {r.items}
+                    </span>
+                  ),
+                },
+                { title: "Action points", align: "right", render: (_, r) => (r.actions ? <span className="tnum">{r.actionsOpen ? `${r.actionsOpen} open of ${r.actions}` : `${r.actions} done`}</span> : <span className="faint">—</span>) },
+                { title: "Minutes", render: (_, r) => (r.minutesDocumentId ? <DocLink id={r.minutesDocumentId} label="Minutes (PDF)" /> : <span className="faint">{r.status === "CLOSED" ? "—" : "After closing"}</span>) },
+              ]}
+            />
+          </Card>
+
+          {actions.length ? (
+            <Card size="small" title={<span><CheckSquareOutlined style={{ color: "var(--brand)", marginRight: 8 }} />Open action points</span>} style={{ marginTop: 16 }} styles={{ body: { padding: 0 } }} data-testid="open-actions">
+              <Table
+                size="small"
+                rowKey="id"
+                pagination={{ pageSize: 8, hideOnSinglePage: true }}
+                dataSource={actions}
+                columns={[
+                  { title: "Action point", dataIndex: "title" },
+                  { title: "Meeting", render: (_, a) => <Link href={`/pcp/council/${a.meetingRef}#actions`} className="mono">{a.meetingRef}</Link> },
+                  { title: "Owner", dataIndex: "owner" },
+                  { title: "Due", render: (_, a) => <span style={{ color: a.days < 0 ? "#b4141f" : undefined }}>{fmtDate(a.dueDate)} <span className="faint">· {relDays(a.days)}</span></span> },
+                  { title: "Status", render: (_, a) => <TaskStatus status={a.status} overdue={a.days < 0} /> },
+                ]}
+              />
+            </Card>
+          ) : null}
+        </>
       ) : null}
 
       <Modal

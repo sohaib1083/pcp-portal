@@ -24,6 +24,8 @@ import { buildAgenda, closeMeeting, recordItemDecision, removeAgendaItem, setDra
 import type { ActionResult } from "@/app/actions/faculty";
 import type { AgendaItem, MeetingDetail } from "@/lib/council-data";
 import type { AgendaOptions, meetingActions } from "@/lib/governance-data";
+import type { MeetingRoll } from "@/lib/members";
+import MeetingAttendance, { RecusalFlag } from "./MeetingAttendance";
 import { PageTitle, StatusTag, fmtDate } from "./common";
 import { DECISION_TEXT, DecisionPill, DocLink, ModuleStatus, Quote } from "./CouncilParts";
 import { FillDemo } from "./demo-helpers";
@@ -187,7 +189,7 @@ function InspectionBlock({ i }: { i: NonNullable<NonNullable<AgendaItem["case"]>
   );
 }
 
-function ItemCard({ it, status, canManage, canDecide, onDecide, run, pending }: { it: AgendaItem; status: string; canManage: boolean; canDecide: boolean; onDecide: () => void; run: (fn: () => Promise<ActionResult>) => void; pending: boolean }) {
+function ItemCard({ it, status, canManage, canDecide, onDecide, run, pending, recusal }: { it: AgendaItem; status: string; canManage: boolean; canDecide: boolean; onDecide: () => void; run: (fn: () => Promise<ActionResult>) => void; pending: boolean; recusal?: React.ReactNode }) {
   const ref = itemRef(it);
   const isCase = it.kind === "case";
   const c = it.case;
@@ -239,6 +241,7 @@ function ItemCard({ it, status, canManage, canDecide, onDecide, run, pending }: 
         ) : null
       }
     >
+      {recusal}
       <Row gutter={[18, 14]}>
         <Col xs={24} lg={13}>
           {isCase ? (
@@ -334,6 +337,7 @@ export default function CouncilMeetingView({
   committee,
   actions,
   options,
+  roll,
 }: {
   d: MeetingDetail;
   canManage: boolean;
@@ -342,6 +346,8 @@ export default function CouncilMeetingView({
   committee: Committee;
   actions: Actions;
   options: AgendaOptions | null;
+  /** Attendance, quorum and recusals from the members register. */
+  roll?: MeetingRoll | null;
 }) {
   const { message } = App.useApp();
   const router = useRouter();
@@ -417,7 +423,10 @@ export default function CouncilMeetingView({
               </Button>
             ) : null}
             {canManage && m.status === "PLANNED" ? (
-              <Popconfirm title="Start the session?" description="The agenda is then fixed and decisions can be recorded." okText="Start session" onConfirm={() => run(() => startSession(m.ref))} disabled={!d.items.length}>
+              <Popconfirm
+                title="Start the session?"
+                description={roll?.applicable && roll.members.some((x) => x.present === null) ? "The agenda is then fixed. Members not marked yet are recorded as present; mark absentees first." : "The agenda is then fixed and decisions can be recorded."}
+                okText="Start session" onConfirm={() => run(() => startSession(m.ref))} disabled={!d.items.length}>
                 <Button type="primary" icon={<PlayCircleOutlined />} loading={pending} disabled={!d.items.length}>
                   Start session
                 </Button>
@@ -482,14 +491,17 @@ export default function CouncilMeetingView({
         />
       ) : null}
 
+      {roll ? <MeetingAttendance meetingRef={m.ref} roll={roll} canManage={canManage} run={run} pending={pending} /> : null}
+
       {d.items.length ? (
-        d.items.map((it) =>
-          decisionItem(it) ? (
-            <ItemCard key={it.id} it={it} status={m.status} canManage={canManage} canDecide={canDecide} onDecide={() => setDeciding(it)} run={run} pending={pending} />
+        d.items.map((it) => {
+          const recusal = roll ? <RecusalFlag recusals={roll.recusals[it.id]} quorum={roll.marked ? roll.itemQuorum[it.id] : undefined} needed={roll.needed} /> : null;
+          return decisionItem(it) ? (
+            <ItemCard key={it.id} it={it} status={m.status} canManage={canManage} canDecide={canDecide} onDecide={() => setDeciding(it)} run={run} pending={pending} recusal={recusal} />
           ) : (
-            <GeneralItemCard key={it.id} it={it} status={m.status} council={council} canManage={canManage} run={run} pending={pending} />
-          ),
-        )
+            <GeneralItemCard key={it.id} it={it} status={m.status} council={council} canManage={canManage} run={run} pending={pending} recusal={recusal} />
+          );
+        })
       ) : (
         <Card>
           <Empty

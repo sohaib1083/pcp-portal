@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { emailAudience } from "./messages";
 import { fileDocument, publicUrl, renderLetter } from "./letters";
+import { minutesRoll } from "./members";
 import { KIND_LABELS, programmeName } from "./workflow";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -160,11 +161,19 @@ export async function nextPlannedMeeting(exec: Executor) {
 /**
  * Minutes of a council or committee meeting: one row per agenda item with the decision (council) or the
  * recommendation (committee), then the action points with owner and due date. A PCP-level document (no owner).
+ * Attendance and the quorum come from the members register, with any recusal recorded on its item.
  */
 export async function fileMinutes(exec: Executor, meetingId: number, by: { username: string; name: string }) {
+  const { bytes, meeting, isCouncil } = await renderMinutes(exec, meetingId, by);
+  return fileDocument(exec, { folder: `council/${meeting.ref}`, docType: isCouncil ? "Council minutes" : "Committee minutes", fileName: `minutes-${meeting.ref}.pdf`, bytes, uploadedBy: by.username });
+}
+
+/** The minutes PDF, without filing it. */
+export async function renderMinutes(exec: Executor, meetingId: number, by: { username: string; name: string }) {
   const meeting = await exec.query.councilMeetings.findFirst({ where: eq(schema.councilMeetings.id, meetingId) });
   if (!meeting) throw new Error("Meeting not found");
   const isCouncil = meeting.committee === COUNCIL;
+  const roll = await minutesRoll(exec, meetingId);
   const items = await exec.select().from(schema.councilItems).where(eq(schema.councilItems.meetingId, meetingId)).orderBy(asc(schema.councilItems.position));
   const appIds = items.map((i) => i.applicationId).filter((x): x is number => x != null);
   const appealIds = items.map((i) => i.appealId).filter((x): x is number => x != null);
@@ -224,7 +233,8 @@ export async function fileMinutes(exec: Executor, meetingId: number, by: { usern
     } else if (it.resolution) {
       outcome = `${isCouncil ? "Outcome" : "Recommendation"}: ${cut(it.resolution)}`;
     }
-    return [left, `${what}: ${outcome}`];
+    const recused = roll.recused[it.id];
+    return [left, `${what}: ${outcome}${recused ? ` ${recused}` : ""}`];
   });
   const name = (u: string) => staff.find((s) => s.username === u)?.displayName ?? u;
   for (const [i, a] of actions.entries()) table.push([`Action ${i + 1}`, `${cut(a.title).replace(/[.\s]*$/, ".")} Owner: ${name(a.owner)}, due ${fmtDay(a.dueDate)}.`]);
@@ -241,17 +251,19 @@ export async function fileMinutes(exec: Executor, meetingId: number, by: { usern
       ? [
           `The council considered ${items.length} item${items.length === 1 ? "" : "s"} placed on the agenda by the Secretary from cases and appeals ready for a decision. ${decided} decision${decided === 1 ? " was" : "s were"} recorded, each confirmed with a one-time code and written to the audit log.${resolved ? ` ${resolved} other matter${resolved === 1 ? " was" : "s were"} discussed and noted.` : ""}${actionLine}`,
           "Each decision is communicated to the institution with a standard decision letter. A deferral states the reason and the date the case returns; a rejection states its grounds.",
+          ...(roll.attendance ? [`${roll.attendance} A member with a declared conflict of interest on an item was recused from it and is named against that item.`] : []),
         ]
       : [
           `The ${meeting.committee} considered ${items.length} item${items.length === 1 ? "" : "s"} and recorded ${resolved} recommendation${resolved === 1 ? "" : "s"}.${actionLine}`,
           "A committee recommends; it does not decide. Recommendations on cases and appeals go to the Council, which records its decisions with a one-time code.",
+          ...(roll.attendance ? [`${roll.attendance} A member with a declared conflict of interest on an item was recused from it and is named against that item.`] : []),
         ],
     table,
     signatory: { name: by.name, title: isCouncil ? "Secretary, Pharmacy Council of Pakistan" : `Secretary to the ${meeting.committee}`, signedAt: meeting.closedAt ?? new Date() },
     qrUrl: publicUrl(`/pcp/council/${meeting.ref}`),
     qrCaption: "Opens the meeting record (PCP staff sign-in)",
   });
-  return fileDocument(exec, { folder: `council/${meeting.ref}`, docType: isCouncil ? "Council minutes" : "Committee minutes", fileName: `minutes-${meeting.ref}.pdf`, bytes, uploadedBy: by.username });
+  return { bytes, meeting, isCouncil };
 }
 
 // ---------- Appeal decision letter ----------

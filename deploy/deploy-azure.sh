@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Hosted demo on Azure (Azure for Students credit, no card): one VM running Caddy (HTTPS) in front of the
-# tested all-in-one PCP container (deploy/hf). The address is https://<DNS_LABEL>.<region>.cloudapp.azure.com.
+# tested all-in-one PCP container (deploy/hf). The address is https://<DNS_LABEL>.<region>.cloudapp.azure.com, or
+# PUBLIC_HOST from deploy/.azure.env (e.g. pcp-<ip>.sslip.io or your own domain); the Azure name then redirects to it.
 #   deploy/deploy-azure.sh first     create the resource group, VM, firewall and DNS name, then build and start
 #   deploy/deploy-azure.sh update    ship the current working tree and rebuild
+#   deploy/deploy-azure.sh config    resend the settings (PUBLIC_HOST, QUICK_LOGIN, POC_PASSWORD_SEED) and restart, no rebuild
+#   deploy/deploy-azure.sh credentials   print every account's password (from POC_PASSWORD_SEED) into deploy/poc-credentials.json
 #   deploy/deploy-azure.sh reset     restart the portal from its clean demo data
 #   deploy/deploy-azure.sh status    show the link and container state
 #   deploy/deploy-azure.sh stop      deallocate the VM (stops compute charges; the address is kept)
@@ -21,18 +24,27 @@ KEY=$HOME/.ssh/pcp_azure
 COMPOSE="sudo docker compose -f docker-compose.single.yml --env-file .env"
 
 ip() { az vm show -d -g "$RG" -n "$VM" --query publicIps -o tsv; }
-host() { echo "${DNS_LABEL}.${LOCATION}.cloudapp.azure.com"; }
+azure_host() { echo "${DNS_LABEL}.${LOCATION}.cloudapp.azure.com"; }
+host() { echo "${PUBLIC_HOST:-$(azure_host)}"; }
 remote() { ssh -i "$KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 "azureuser@$(ip)" "$1"; }
 wait_for() { for _ in $(seq 1 120); do curl -sf -o /dev/null --max-time 10 "$1" && return 0; sleep 5; done; echo "Timed out waiting for $1"; return 1; }
+
+# The address settings: .env for Compose and a Caddyfile (HTTPS for the address; the Azure name redirects to it).
+write_config() {
+  local H A; H=$(host); A=$(azure_host)
+  printf 'PUBLIC_HOST=%s\nQUICK_LOGIN=%s\nPOC_PASSWORD_SEED=%s\n' "$H" "${QUICK_LOGIN:-off}" "${POC_PASSWORD_SEED:-}" > /tmp/pcp.env
+  { printf '%s {\n\tencode zstd gzip\n\treverse_proxy pcp:7860\n}\n' "$H"
+    [ "$H" != "$A" ] && printf '%s {\n\tredir https://%s{uri} permanent\n}\n' "$A" "$H"; } > /tmp/pcp.Caddyfile
+}
 
 ship() {
   local H; H=$(host)
   rm -rf /tmp/pcp-space && deploy/hf/build.sh /tmp/pcp-space
   tar -czf /tmp/pcp-release.tgz -C /tmp pcp-space -C "$(pwd)/deploy" docker-compose.single.yml
-  printf 'PUBLIC_HOST=%s\n' "$H" > /tmp/pcp.env
-  scp -i "$KEY" -o StrictHostKeyChecking=accept-new /tmp/pcp-release.tgz /tmp/pcp.env "azureuser@$(ip)":/tmp/
+  write_config
+  scp -i "$KEY" -o StrictHostKeyChecking=accept-new /tmp/pcp-release.tgz /tmp/pcp.env /tmp/pcp.Caddyfile "azureuser@$(ip)":/tmp/
   remote "until [ -f /var/lib/cloud/instance/boot-finished ] && command -v docker >/dev/null; do echo 'waiting for VM setup'; sleep 5; done
-    rm -rf ~/pcp && mkdir -p ~/pcp && tar -xzf /tmp/pcp-release.tgz -C ~/pcp && mv ~/pcp/pcp-space ~/pcp/space && cp /tmp/pcp.env ~/pcp/.env
+    rm -rf ~/pcp && mkdir -p ~/pcp && tar -xzf /tmp/pcp-release.tgz -C ~/pcp && mv ~/pcp/pcp-space ~/pcp/space && cp /tmp/pcp.env ~/pcp/.env && cp /tmp/pcp.Caddyfile ~/pcp/Caddyfile
     cd ~/pcp && $COMPOSE up -d --build --remove-orphans"
   echo "Waiting for https://$H ..."
   wait_for "https://$H/login"
@@ -44,7 +56,9 @@ case "${1:-status}" in
     [ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N "" -f "$KEY" -C pcp-azure
     if [ ! -f "$STATE" ]; then
       DNS_LABEL=pcp-portal-$(openssl rand -hex 3)
-      printf 'DNS_LABEL=%s\nLOCATION=%s\n' "$DNS_LABEL" "$LOCATION" > "$STATE"
+      POC_PASSWORD_SEED=$(openssl rand -hex 24)
+      umask 077
+      printf 'DNS_LABEL=%s\nLOCATION=%s\nQUICK_LOGIN=off\nPOC_PASSWORD_SEED=%s\n' "$DNS_LABEL" "$LOCATION" "$POC_PASSWORD_SEED" > "$STATE"
     fi
     az provider register --namespace Microsoft.Compute --wait >/dev/null
     az provider register --namespace Microsoft.Network --wait >/dev/null
@@ -64,6 +78,13 @@ CI
     ship
     ;;
   update) ship ;;
+  credentials) POC_PASSWORD_SEED="$POC_PASSWORD_SEED" npx tsx scripts/poc-credentials.ts deploy/poc-credentials.json && echo "Written: deploy/poc-credentials.json (do not commit)" ;;
+  config)
+    write_config
+    scp -i "$KEY" -o StrictHostKeyChecking=accept-new /tmp/pcp.env /tmp/pcp.Caddyfile deploy/docker-compose.single.yml "azureuser@$(ip)":/tmp/
+    remote "cp /tmp/pcp.env ~/pcp/.env && cp /tmp/pcp.Caddyfile ~/pcp/Caddyfile && cp /tmp/docker-compose.single.yml ~/pcp/ && cd ~/pcp && $COMPOSE up -d --force-recreate"
+    wait_for "https://$(host)/login" && echo "Live: https://$(host)"
+    ;;
   reset) remote "cd ~/pcp && $COMPOSE restart pcp" && wait_for "https://$(host)/login" && echo "Demo data reset" ;;
   status)
     echo "https://$(host)"; curl -s -o /dev/null -w "login page: %{http_code} in %{time_total}s\n" "https://$(host)/login" || true
@@ -72,5 +93,5 @@ CI
   stop) az vm deallocate -g "$RG" -n "$VM" -o none && echo "Stopped (no compute charges)" ;;
   start) az vm start -g "$RG" -n "$VM" -o none && wait_for "https://$(host)/login" && echo "Running: https://$(host)" ;;
   destroy) az group delete -n "$RG" --yes && rm -f "$STATE" ;;
-  *) echo "usage: deploy/deploy-azure.sh first|update|reset|status|stop|start|destroy"; exit 1 ;;
+  *) echo "usage: deploy/deploy-azure.sh first|update|config|credentials|reset|status|stop|start|destroy"; exit 1 ;;
 esac

@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { AntdRegistry } from "@ant-design/nextjs-registry";
 import Providers from "@/components/Providers";
 import DemoGuide from "@/components/DemoGuide";
+import { quickLoginEnabled } from "@/lib/demo";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
@@ -19,7 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AntdRegistry>
           <Providers>
             {children}
-            {process.env.DEMO_MODE === "1" ? <DemoGuide /> : null}
+            {quickLoginEnabled() ? <DemoGuide /> : null}
           </Providers>
         </AntdRegistry>
       </body>

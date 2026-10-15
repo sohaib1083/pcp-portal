@@ -339,6 +339,120 @@
       "groups": []
     },
     {
+      "username": "pcp.inspector3",
+      "enabled": true,
+      "firstName": "Farah Naz",
+      "lastName": "Baloch",
+      "email": "pcp.inspector3@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_inspector"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pcp.inspector4",
+      "enabled": true,
+      "firstName": "Imtiaz Ali",
+      "lastName": "Memon",
+      "email": "pcp.inspector4@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_inspector"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pcp.inspector5",
+      "enabled": true,
+      "firstName": "Sadaf",
+      "lastName": "Iqbal",
+      "email": "pcp.inspector5@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_inspector"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pcp.inspector6",
+      "enabled": true,
+      "firstName": "Shabbir Hussain",
+      "lastName": "Turi",
+      "email": "pcp.inspector6@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_inspector"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pcp.inspector7",
+      "enabled": true,
+      "firstName": "Gul Rukh",
+      "lastName": "Afridi",
+      "email": "pcp.inspector7@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_inspector"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pcp.inspector8",
+      "enabled": true,
+      "firstName": "Asma",
+      "lastName": "Rizvi",
+      "email": "pcp.inspector8@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_inspector"
+      ],
+      "groups": []
+    },
+    {
       "username": "pcp.secretary",
       "enabled": true,
       "firstName": "Nadia",

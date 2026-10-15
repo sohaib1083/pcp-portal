@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import LoginView from "@/components/LoginView";
+import SignInView from "@/components/SignInView";
 import { quickLoginEnabled } from "@/lib/demo";
 import { getUser } from "@/lib/session";
 
@@ -10,5 +11,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const user = await getUser();
   // In the demo build a signed-in presenter may come back here to switch persona.
   if (user && !error && !quickLoginEnabled()) redirect("/home");
-  return <LoginView next={next ?? ""} quick={quickLoginEnabled()} error={error === "quick" ? { user: u ?? "that account" } : null} />;
+  // One-click persona entry is for presentations; a hosted POC (QUICK_LOGIN=off) shows a plain sign-in page.
+  if (!quickLoginEnabled()) return <SignInView next={next ?? ""} />;
+  return <LoginView next={next ?? ""} quick error={error === "quick" ? { user: u ?? "that account" } : null} />;
 }

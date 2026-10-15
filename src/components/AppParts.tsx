@@ -53,6 +53,13 @@ const today = () => new Date().toISOString().slice(0, 10);
 /** Who holds the file right now. Applicants always see this (HEC's attestation system did not show it). */
 export function courtFor(d: AppDetail): Court {
   const inspection = d.inspections.find((i) => i.status === "SCHEDULED");
+  // An administrative hold (super administrator override) stops the case where it stands.
+  if (d.hold)
+    return {
+      who: "On administrative hold",
+      what: `Placed on hold by PCP on ${fmtDate(d.hold.placedAt)}${d.hold.reason ? `: ${d.hold.reason.trim().replace(/[.\s]+$/, "")}` : ""}. No step can be taken until the hold is released; the time limit is paused.`,
+      tone: "bad",
+    };
   switch (d.app.status) {
     case "DRAFT":
       return d.pg
@@ -170,6 +177,12 @@ export function AppHeader({ d, extra }: { d: AppDetail; extra?: React.ReactNode 
             <br />
             <b style={{ color: clock.overdue ? "#b4141f" : clock.tone === "warn" ? "#a15c00" : "var(--ink-2)" }}>{clock.text}</b>
             {d.app.escalatedAt ? <div style={{ color: "#b4141f" }}>Escalated {fmtDate(d.app.escalatedAt)}</div> : null}
+          </div>
+        ) : d.hold ? (
+          <div style={{ fontSize: 12, textAlign: "right", whiteSpace: "nowrap" }} data-testid="hold-clock">
+            <span className="faint">Since {fmtDate(d.hold.placedAt)}</span>
+            <br />
+            <b style={{ color: "#b4141f" }}>Clock paused</b>
           </div>
         ) : last ? (
           <div className="faint" style={{ fontSize: 12, textAlign: "right", whiteSpace: "nowrap" }}>
@@ -334,11 +347,14 @@ export function TimelineCard({ d }: { d: AppDetail }) {
     <Card size="small" title="Timeline" extra={<span className="faint" style={{ fontSize: 12 }}>Every step is in the audit log</span>}>
       <div style={{ position: "relative" }}>
         {events.map((e, i) => (
-          <div key={e.id} style={{ display: "flex", gap: 12, paddingBottom: i === events.length - 1 ? 0 : 14, position: "relative" }}>
+          <div key={e.id} className={e.override ? "timeline-override" : undefined} data-override={e.override?.ref} style={{ display: "flex", gap: 12, paddingBottom: i === events.length - 1 ? 0 : 14, position: "relative" }}>
             {i < events.length - 1 ? <span style={{ position: "absolute", left: 13, top: 28, bottom: 0, width: 2, background: "var(--line)" }} /> : null}
             <Avatar name={e.actor} size={28} />
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 13.5 }}>{STATUS_LABELS[e.toStatus] ?? e.toStatus}</div>
+            <div style={{ minWidth: 0, ...(e.override ? { borderLeft: "3px solid #ffccc7", paddingLeft: 8 } : {}) }}>
+              <div style={{ fontWeight: 600, fontSize: 13.5, color: e.override ? "#b4141f" : undefined }}>
+                {e.title ?? STATUS_LABELS[e.toStatus] ?? e.toStatus}
+                {e.override && e.toStatus !== e.fromStatus ? <span style={{ color: "var(--ink-2)", fontWeight: 500 }}> · {STATUS_LABELS[e.toStatus] ?? e.toStatus}</span> : null}
+              </div>
               <div className="faint" style={{ fontSize: 12 }}>
                 {e.actor} · {fmtDate(e.createdAt, true)}
               </div>

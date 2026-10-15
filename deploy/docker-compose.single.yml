@@ -8,17 +8,21 @@ services:
     restart: unless-stopped
     environment:
       PUBLIC_ORIGIN: https://${PUBLIC_HOST}
+      # A hosted POC: everyone signs in with their own password (no one-click persona entry).
+      QUICK_LOGIN: ${QUICK_LOGIN:-on}
+      POC_PASSWORD_SEED: ${POC_PASSWORD_SEED:-}
 
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
     environment:
       PUBLIC_HOST: ${PUBLIC_HOST}
-    command: ["caddy", "reverse-proxy", "--from", "${PUBLIC_HOST}", "--to", "pcp:7860"]
     ports:
       - "80:80"
       - "443:443"
     volumes:
+      # Written by the deploy script: HTTPS for PUBLIC_HOST, and a redirect from the cloud's own name if different.
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:

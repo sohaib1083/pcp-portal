@@ -25,6 +25,10 @@ export default async function InstitutionApplicationPage({ params }: { params: P
     })),
     technicalReview: null,
     messages: d.messages.filter((m) => m.institutionId === inst.id || m.audience === `inst:${inst.code}`),
+    // A super administrator override shows as an update from PCP: never its internal reason or who made it.
+    events: d.events.map((e) => (e.override ? { ...e, actor: "PCP", note: e.override.publicNote, title: e.toStatus === e.fromStatus ? "Update from PCP" : null, override: null } : e)),
+    overrides: [],
+    hold: d.hold ? { ...d.hold, reason: null, placedBy: "PCP" } : null,
   };
 
   return (

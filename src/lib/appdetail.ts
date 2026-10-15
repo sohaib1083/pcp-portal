@@ -1,5 +1,6 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { OVERRIDE_LABELS } from "./overrides";
 import { inField, pgTypeRule, supervisorEligibility, supervisorsRequired } from "./pg";
 import { caseFaculty, getPgRule, getRule, getScoringRule, requiredDocsFor, subjectRequirements, type ProgramRule } from "./rules";
 import { iso } from "./util";
@@ -31,6 +32,10 @@ export async function loadApplication(ref: string) {
   const letter = app.letterDocumentId ? await db.query.documents.findFirst({ where: eq(schema.documents.id, app.letterDocumentId) }) : null;
   const messages = await db.select().from(schema.messages).where(eq(schema.messages.entityRef, app.ref)).orderBy(desc(schema.messages.id)).limit(200);
   const faculty = await caseFaculty(app.id, app.institutionId, app.programType);
+  // Super administrator overrides and an open administrative hold (RFP 4.1.2).
+  const overrides = await db.select().from(schema.caseOverrides).where(eq(schema.caseOverrides.applicationId, app.id)).orderBy(desc(schema.caseOverrides.id));
+  const [hold] = await db.select().from(schema.caseHolds).where(and(eq(schema.caseHolds.applicationId, app.id), isNull(schema.caseHolds.releasedAt))).limit(1);
+  const overrideFor = (eventId: number) => overrides.find((o) => o.eventId === eventId);
 
   const pgCase = isPg(app.programType);
   let rule: ProgramRule | null = null;
@@ -108,7 +113,23 @@ export async function loadApplication(ref: string) {
       ? { nocStatus: program.nocStatus, nocNumber: program.nocNumber, approvedIntake: program.approvedIntake, accreditationStatus: program.accreditationStatus, validUntil: program.accreditationValidUntil }
       : null,
     period,
-    events: events.map((e) => ({ id: e.id, fromStatus: e.fromStatus, toStatus: e.toStatus, actor: names[e.actor] ?? e.actor, actorRole: e.actorRole, note: e.note, createdAt: iso(e.createdAt)! })),
+    events: events.map((e) => {
+      const o = overrideFor(e.id);
+      return {
+        id: e.id,
+        fromStatus: e.fromStatus,
+        toStatus: e.toStatus,
+        actor: names[e.actor] ?? e.actor,
+        actorRole: e.actorRole,
+        note: e.note,
+        createdAt: iso(e.createdAt)!,
+        // An override's own heading (a deadline change or hold keeps the status); the institution sees publicNote instead of the note.
+        override: o ? { ref: o.ref, kind: o.kind, publicNote: o.publicNote } : null,
+        title: o ? `Super administrator override: ${OVERRIDE_LABELS[o.kind]?.toLowerCase() ?? o.kind}` : null,
+      };
+    }),
+    overrides: overrides.map((o) => ({ ref: o.ref, kind: o.kind, reason: o.reason, actor: names[o.actor] ?? o.actor, createdAt: iso(o.createdAt)! })),
+    hold: hold ? { reason: hold.reason as string | null, placedBy: names[hold.placedBy] ?? hold.placedBy, placedAt: iso(hold.placedAt)!, status: hold.status } : null,
     deficiencies: defs.map((d) => ({
       id: d.id,
       ref: d.ref,

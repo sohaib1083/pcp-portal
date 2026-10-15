@@ -66,3 +66,4 @@ e2e/screenshots/
 # local agent worktrees and tool state
 /.claude/
 deploy/.azure.env
+deploy/poc-credentials*

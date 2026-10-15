@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import type { ChecklistItem, SupervisorCheck } from "@/db/schema";
@@ -12,6 +12,7 @@ import { assertNoStayOrder } from "@/lib/governance";
 import { bandFor, scoreProblem, scoreTotals, weightFor } from "@/lib/inspection-scoring";
 import { fileDocument } from "@/lib/letters";
 import { requireOtp } from "@/lib/otp";
+import { assertNotOnHold } from "@/lib/overrides";
 import { pgTypeRule, supervisorsRequired } from "@/lib/pg";
 import { accreditationYearsFor, caseFaculty, getPgRule, getScoringRule } from "@/lib/rules";
 import { requirePermission, requireUser } from "@/lib/session";
@@ -29,11 +30,13 @@ async function getApp(ref: string) {
   if (!app) throw new Error("Application not found");
   const inst = await db.query.institutions.findFirst({ where: eq(schema.institutions.id, app.institutionId) });
   if (!inst) throw new Error("Institution not found");
+  await assertNotOnHold(db, app.id); // an administrative hold stops every step (RFP 4.1.2 overrides)
   return { app, inst };
 }
 
 /** Every transition restarts the service-level clock for the new stage (guide section 14). */
 async function move(tx: Tx, app: { id: number; status: string }, to: string, user: { username: string; role: string }, note?: string, extra: Partial<typeof schema.applications.$inferInsert> = {}, clock?: Clock) {
+  await assertNotOnHold(tx, app.id);
   const c = clock ?? (await clockFor(to));
   await tx.update(schema.applications).set({ status: to, updatedAt: new Date(), ...c, ...extra }).where(eq(schema.applications.id, app.id));
   await tx.insert(schema.applicationEvents).values({ applicationId: app.id, fromStatus: app.status, toStatus: to, actor: user.username, actorRole: user.role, note: note ?? null });
@@ -204,6 +207,7 @@ export async function reviewDeficiency(deficiencyId: number, accept: boolean, no
     const app = await db.query.applications.findFirst({ where: eq(schema.applications.id, def.applicationId) });
     const inst = await db.query.institutions.findFirst({ where: eq(schema.institutions.id, def.institutionId) });
     if (!app || !inst) throw new Error("Not found");
+    await assertNotOnHold(db, app.id);
     const origin = await deficiencyOrigin(app.id);
     if (!can(user.roles, "pcp.app.scrutiny") && !(origin === "TECHNICAL_REVIEW" && can(user.roles, "pcp.technical.review"))) throw new Error("Not allowed: a case officer reviews this response.");
     const backClock = origin === "DEFERRED" && app.deferUntil ? await clockFor("DEFERRED", { until: app.deferUntil }) : await clockFor(origin);
@@ -211,7 +215,8 @@ export async function reviewDeficiency(deficiencyId: number, accept: boolean, no
     await db.transaction(async (tx) => {
       await tx.update(schema.deficiencies).set({ status: accept ? "ACCEPTED" : "REJECTED", reviewedBy: user.username, reviewNote: note || (accept ? "Accepted" : "Not sufficient") }).where(eq(schema.deficiencies.id, def.id));
       await audit(tx, { actor: user.username, action: accept ? "deficiency.accepted" : "deficiency.rejected", entity: "deficiency", entityId: def.ref });
-      const open = await tx.select().from(schema.deficiencies).where(and(eq(schema.deficiencies.applicationId, app.id), ne(schema.deficiencies.status, "ACCEPTED")));
+      // A deficiency withdrawn by a super administrator override (case reopened) is closed, like an accepted one.
+      const open = await tx.select().from(schema.deficiencies).where(and(eq(schema.deficiencies.applicationId, app.id), notInArray(schema.deficiencies.status, ["ACCEPTED", "WITHDRAWN"])));
       if (!accept && app.status === "RESPONDED") {
         await move(tx, app, "DEFICIENCY_RAISED", user, `${def.ref} response not accepted`, {}, againClock);
         await notify(tx, `inst:${inst.code}`, `Response to ${def.ref} not accepted`, note || "Please provide the required evidence.", `/institution/applications/${app.ref}`);
@@ -237,13 +242,19 @@ async function conflictFor(member: Panelist, inst: { id: number; province: strin
   return null;
 }
 
-const ScheduleInput = z.object({ members: z.array(z.string()).max(6).default([]), scope: z.string().max(1000).optional() });
+const ScheduleInput = z.object({
+  members: z.array(z.string()).max(6).default([]),
+  scope: z.string().max(1000).optional(),
+  // The automated suggestion the coordinator started from, if any: recorded with the booking (RFP 4.1.1).
+  suggestion: z.object({ lead: z.string(), members: z.array(z.string()).max(6), date: z.string().nullable() }).optional().nullable(),
+});
 
 /**
  * The coordinator assigns an inspection team: a lead (`inspector`) plus members. Every member passes the
- * conflict check. The institution is told the date, what to prepare and the team size.
+ * conflict check, also when the team came from the automated suggestion. The institution is told the date,
+ * what to prepare and the team size.
  */
-export async function scheduleInspection(ref: string, inspector: string, date: string, opts: { members?: string[]; scope?: string } = {}) {
+export async function scheduleInspection(ref: string, inspector: string, date: string, opts: { members?: string[]; scope?: string; suggestion?: { lead: string; members: string[]; date: string | null } | null } = {}) {
   const user = await requirePermission("pcp.inspection.schedule");
   return guard(async () => {
     const { app, inst } = await getApp(ref);
@@ -271,6 +282,10 @@ export async function scheduleInspection(ref: string, inspector: string, date: s
         ? `Supervisor files with publication lists and current student loads; research laboratories with equipment registers; journal subscriptions and HEC Digital Library access; coursework timetable; ethics and biosafety committee minutes; thesis synopsis approvals.`
         : `Faculty files and appointment letters for every linked teacher; laboratories with equipment registers; library stock and journal subscriptions; student records for the current intake.`);
     const size = usernames.length;
+    const sug = o.suggestion;
+    const fromSuggestion = sug
+      ? { lead: sug.lead, members: sug.members, date: sug.date, followed: sug.lead === inspector && sug.date === date && sug.members.length === usernames.length - 1 && sug.members.every((m) => usernames.includes(m)) }
+      : null;
     const clock = await clockFor("INSPECTION_SCHEDULED", { base: date });
     await db.transaction(async (tx) => {
       const [insp] = await tx.insert(schema.inspections).values({ applicationId: app.id, institutionId: inst.id, inspector, scheduledFor: date, scope, createdBy: user.username }).returning();
@@ -279,10 +294,16 @@ export async function scheduleInspection(ref: string, inspector: string, date: s
       for (const [i, u] of usernames.entries())
         await notify(tx, `user:${u}`, `Inspection ${i === 0 ? "lead" : "team"}: ${ref}`, `${inst.name}, ${inst.city}, on ${date}. ${i === 0 ? "You lead the team and submit the checklist." : "You are a team member; the lead submits the checklist."}`, "/pcp/inspections");
       await notify(tx, `inst:${inst.code}`, `Inspection scheduled for ${ref}`, `PCP will inspect your institution on ${date} with a team of ${size}. Please prepare: ${scope}`, `/institution/applications/${ref}`);
-      await audit(tx, { actor: user.username, action: "inspection.scheduled", entity: "application", entityId: ref, details: { lead: inspector, members: usernames.slice(1), date, conflictCheck: "passed" } });
+      await audit(tx, {
+        actor: user.username,
+        action: "inspection.scheduled",
+        entity: "application",
+        entityId: ref,
+        details: { lead: inspector, members: usernames.slice(1), date, conflictCheck: "passed", ...(fromSuggestion ? { suggestion: fromSuggestion.followed ? "accepted as proposed" : "changed by the coordinator", suggested: { lead: fromSuggestion.lead, members: fromSuggestion.members, date: fromSuggestion.date } } : {}) },
+      });
     });
     const names = usernames.map((u) => panel.find((p) => p.username === u)!).map((m) => `${m.displayName} (${m.province})`);
-    return done(ref, `Inspection scheduled. Team of ${size}: ${names.join(", ")}. Every member passed the conflict check.`);
+    return done(ref, `Inspection scheduled${fromSuggestion?.followed ? " as suggested" : ""}. Team of ${size}: ${names.join(", ")}. Every member passed the conflict check.`);
   });
 }
 

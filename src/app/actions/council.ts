@@ -8,6 +8,7 @@ import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
 import { COUNCIL, DECISION_LABELS, draftFromRecommendation, fileAppealLetter, fileMinutes, fmtDay, lockAgenda, nextModuleRef, notifyOn, readyForCouncil, recommendationFor, renumberAgenda, reopenCaseForCouncil } from "@/lib/council";
 import { assertNoStayOrder, committeeList } from "@/lib/governance";
+import { assertQuorum, defaultAttendance, recordRecusals } from "@/lib/members";
 import { requireOtp } from "@/lib/otp";
 import { can } from "@/lib/roles";
 import { requirePermission, requireUser } from "@/lib/session";
@@ -149,12 +150,16 @@ export async function startSession(meetingRef: string): Promise<ActionResult> {
     if (m.status !== "PLANNED") return fail(`${m.ref} is not a planned meeting.`);
     const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.councilItems).where(eq(schema.councilItems.meetingId, m.id));
     if (!n) return fail(m.committee === COUNCIL ? "The agenda is empty. Build the agenda from the ready cases first." : "The agenda is empty. Add agenda items first.");
-    await db.transaction(async (tx) => {
+    // Attendance from the members register: anyone not marked yet is recorded as present (the Secretary marks absentees).
+    const roll = await db.transaction(async (tx) => {
       await tx.update(schema.councilMeetings).set({ status: "IN_SESSION", startedAt: new Date() }).where(eq(schema.councilMeetings.id, m.id));
-      await audit(tx, { actor: user.username, action: "council.session.started", entity: "council_meeting", entityId: m.ref, details: { items: n } });
+      const r = await defaultAttendance(tx, m.id, user.username);
+      await audit(tx, { actor: user.username, action: "council.session.started", entity: "council_meeting", entityId: m.ref, details: { items: n, ...(r.applicable ? { present: r.presentVoting, voting: r.voting, quorum: r.needed, markedPresentByDefault: r.defaulted } : {}) } });
+      return r;
     });
     refresh(m.ref);
-    return { ok: true, message: `${m.ref} is in session. ${m.committee === COUNCIL ? "Record a decision for each item." : "Record a recommendation for each item, and the action points agreed."}`, level: "success" };
+    const att = roll.applicable ? ` ${roll.presentVoting} of ${roll.voting} voting members present; quorum ${roll.needed} ${roll.presentVoting >= roll.needed ? "met" : "not met"}.` : "";
+    return { ok: true, message: `${m.ref} is in session.${att} ${m.committee === COUNCIL ? "Record a decision for each item." : "Record a recommendation for each item, and the action points agreed."}`, level: roll.applicable && roll.presentVoting < roll.needed ? "warning" : "success" };
   });
 }
 
@@ -185,6 +190,8 @@ export async function recordItemDecision(itemId: number, raw: unknown): Promise<
     if (!item.applicationId && !item.appealId) return fail("This item is a matter for discussion: record its outcome instead of a decision.");
     if (m.status !== "IN_SESSION") return fail(m.status === "PLANNED" ? "Start the session before recording decisions." : `${m.ref} is closed; its decisions are final.`);
     if (item.decision) return fail("This item already has a recorded decision.");
+    // A quorum of voting members, counted after any member with a declared conflict on the item steps out.
+    await assertQuorum(db, m.id, item.id);
 
     if (item.applicationId) {
       if (!["APPROVED", "DEFERRED", "REJECTED"].includes(v.decision)) return fail("A case is approved, deferred or rejected.");
@@ -214,7 +221,8 @@ export async function recordItemDecision(itemId: number, raw: unknown): Promise<
           .update(schema.councilItems)
           .set({ decision: v.decision, decisionNote: grounds && v.decision === "REJECTED" ? grounds : note || null, deferUntil: deferUntil ?? null, decidedBy: user.username, decidedAt: new Date() })
           .where(eq(schema.councilItems.id, item.id));
-        await audit(tx, { actor: user.username, action: "council.item.decided", entity: "council_meeting", entityId: m.ref, details: { case: app.ref, decision: v.decision, deferUntil: deferUntil ?? null } });
+        const recused = await recordRecusals(tx, m.id, item.id);
+        await audit(tx, { actor: user.username, action: "council.item.decided", entity: "council_meeting", entityId: m.ref, details: { case: app.ref, decision: v.decision, deferUntil: deferUntil ?? null, ...(recused.length ? { recused: recused.map((r) => r.reason) } : {}) } });
       });
       refresh(m.ref);
       return { ok: true, message: `${app.ref}: ${DECISION_LABELS[v.decision].toLowerCase()}. The institution is notified.`, level: "success" };
@@ -256,7 +264,8 @@ export async function recordItemDecision(itemId: number, raw: unknown): Promise<
       );
       await notifyOn(tx, "role:pcp_officer", `Appeal ${appeal.ref} ${v.decision === "UPHELD" ? "upheld" : "dismissed"}`, v.decision === "UPHELD" ? `${original.ref} is back in council review.` : `The decision on ${original.ref} stands.`, `/pcp/appeals/${appeal.ref}`, "appeal", appeal.ref);
       await audit(tx, { actor: user.username, action: v.decision === "UPHELD" ? "appeal.upheld" : "appeal.dismissed", entity: "appeal", entityId: appeal.ref, details: { meeting: m.ref, case: original.ref, letter: letter.id, note } });
-      await audit(tx, { actor: user.username, action: "council.item.decided", entity: "council_meeting", entityId: m.ref, details: { appeal: appeal.ref, decision: v.decision } });
+      const recused = await recordRecusals(tx, m.id, item.id);
+      await audit(tx, { actor: user.username, action: "council.item.decided", entity: "council_meeting", entityId: m.ref, details: { appeal: appeal.ref, decision: v.decision, ...(recused.length ? { recused: recused.map((r) => r.reason) } : {}) } });
     });
     refresh(m.ref);
     revalidatePath(`/pcp/appeals/${appeal.ref}`);
@@ -278,6 +287,8 @@ export async function closeMeeting(meetingRef: string): Promise<ActionResult> {
     const items = await db.select().from(schema.councilItems).where(eq(schema.councilItems.meetingId, m.id));
     const open = items.filter((i) => !i.decision && !i.resolution).length;
     const doc = await db.transaction(async (tx) => {
+      // Recusals are written on every item before the meeting closes, so the minutes and the record keep them.
+      await recordRecusals(tx, m.id);
       await tx.update(schema.councilMeetings).set({ status: "CLOSED", closedAt: new Date() }).where(eq(schema.councilMeetings.id, m.id));
       const d = await fileMinutes(tx, m.id, { username: user.username, name: user.name });
       await tx.update(schema.councilMeetings).set({ minutesDocumentId: d.id }).where(eq(schema.councilMeetings.id, m.id));

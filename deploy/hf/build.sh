@@ -31,7 +31,7 @@ npx esbuild scripts/seed.ts --bundle --platform=node --format=cjs --target=node2
   --external:pg-native --outfile="$B/hf/seed.cjs" --log-level=warning
 DATABASE_URL=postgres://unused@localhost/unused npx drizzle-kit export --sql > "$B/hf/schema.sql"
 grep -q 'CREATE TABLE "institutions"' "$B/hf/schema.sql" || { echo "Schema export looks wrong"; exit 1; }
-cp scripts/gen-realm.mjs deploy/hf/start.sh deploy/hf/nginx.conf "$B/hf/"
+cp scripts/gen-realm.mjs scripts/poc-password.mjs deploy/hf/start.sh deploy/hf/nginx.conf "$B/hf/"
 mkdir -p "$B/hf/themes" && cp -a docker/keycloak/themes/pcp "$B/hf/themes/pcp"
 
 echo "Writing $OUT"

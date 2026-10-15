@@ -1,5 +1,6 @@
 // Generates docker/keycloak/realm-pcp.json (roles, institution groups, demo users, clients).
 import { writeFileSync } from "node:fs";
+import { pocPassword } from "./poc-password.mjs";
 
 const INSTITUTIONS = [
   ["PCP-UNI-000101", "ruh", "Ayesha", "Khan"],
@@ -45,16 +46,25 @@ const SECRET = {
 };
 // Extra local ports for development servers (parallel work on separate databases); not in production.
 const DEV_PORTS = PROD ? [] : [3201, 3202, 3203, 3204, 3205, 3206, 3207, 3208, 3209];
-const pw = [{ type: "password", value: "Demo@1234", temporary: false }];
+// Demo@1234 for every account, or, for a hosted POC, a separate password per account derived from POC_PASSWORD_SEED.
+const SEED = process.env.POC_PASSWORD_SEED;
+const pw = (username) => [{ type: "password", value: SEED ? pocPassword(SEED, username) : "Demo@1234", temporary: false }];
 const user = (username, firstName, lastName, role, inst) => ({
   username, enabled: true, firstName, lastName, email: `${username}@demo.pcp.local`, emailVerified: true,
-  credentials: pw, realmRoles: [role], groups: inst ? [`/institutions/${inst}`] : [],
+  credentials: pw(username), realmRoles: [role], groups: inst ? [`/institutions/${inst}`] : [],
 });
 const users = [
   user("pcp.admin", "Super", "Admin", "pcp_admin"),
   user("pcp.officer", "Usman", "Farooq", "pcp_officer"),
   user("pcp.inspector", "Kamran", "Javed", "pcp_inspector"),
   user("pcp.inspector2", "Zainab", "Qureshi", "pcp_inspector"),
+  // More panel members, one per province, for the automated team suggestion (RFP 4.1.1)
+  user("pcp.inspector3", "Farah Naz", "Baloch", "pcp_inspector"),
+  user("pcp.inspector4", "Imtiaz Ali", "Memon", "pcp_inspector"),
+  user("pcp.inspector5", "Sadaf", "Iqbal", "pcp_inspector"),
+  user("pcp.inspector6", "Shabbir Hussain", "Turi", "pcp_inspector"),
+  user("pcp.inspector7", "Gul Rukh", "Afridi", "pcp_inspector"),
+  user("pcp.inspector8", "Asma", "Rizvi", "pcp_inspector"),
   user("pcp.secretary", "Nadia", "Hussain", "pcp_secretary"),
   ...INSTITUTIONS.map(([code, s, f, l]) => user(`${s}.poc`, f, l, "inst_poc", code)),
   // Riverside's other jobs (guide section 2: people inside the account have jobs, not a shared password)

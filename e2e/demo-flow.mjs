@@ -99,7 +99,7 @@ try {
   log("ruh.poc signed in →", page.url());
   await page.goto(`${BASE}/pcp/applications`);
   log("ruh.poc trying /pcp/applications →", page.url().replace(BASE, ""));
-  if (page.url().includes("/pcp")) throw new Error("institution user reached /pcp");
+  if (new URL(page.url()).pathname.startsWith("/pcp")) throw new Error("institution user reached /pcp");
   await shot(page, "institution-dashboard");
   await page.goto(`${BASE}/institution/applications`);
   await page.getByRole("button", { name: /New NOC application/ }).hover();

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Alert, App, Button, Card, Col, DatePicker, Form, Input, InputNumber, Radio, Row, Select, Space, Table, Tag, Typography } from "antd";
 import {
   AuditOutlined,
+  BulbOutlined,
   CheckOutlined,
   CloseOutlined,
   ExperimentOutlined,
@@ -30,7 +31,9 @@ import {
   startScrutiny,
 } from "@/app/actions/pcp";
 import type { ActionResult } from "@/app/actions/faculty";
+import { suggestInspectionTeam } from "@/app/actions/inspection-team";
 import type { AppDetail } from "@/lib/appdetail";
+import type { TeamSuggestion as TeamSuggestionData } from "@/lib/inspection-team";
 import { formatPKR } from "@/lib/format";
 import { DEFICIENCY_FROM, PG_TECHNICAL_REVIEW_CRITERIA, TECHNICAL_REVIEW_CRITERIA } from "@/lib/workflow";
 import { AppHeader, CaseFacultyTable, CertificateCard, ChecksCard, DataDescriptions, DecisionCard, DocumentsCard, MessagesCard, ScoreBadge, SelfAssessmentTable, SubjectChips, SupervisorChips, SupervisorTable, TimelineCard, checklistColumns } from "./AppParts";
@@ -39,6 +42,8 @@ import CaseGovernanceNote from "./CaseGovernanceNote";
 import CouncilAgendaNote from "./CouncilAgendaNote";
 import { FillDemo } from "./demo-helpers";
 import { useOtp } from "./OtpConfirm";
+import TeamSuggestion from "./TeamSuggestion";
+import CaseOverridePanel, { type OverrideData } from "./CaseOverridePanel";
 
 /** `technical`: the technical review (academic check, PG proforma, supervisors) is the technical officer's (RFP 4.1.2). */
 export type PcpPerms = { scrutiny: boolean; technical: boolean; schedule: boolean; decide: boolean; issue: boolean; submitInspection: boolean };
@@ -169,10 +174,24 @@ function TechnicalReviewForm({ d, run, pending }: { d: AppDetail; run: (fn: () =
 }
 
 function ScheduleTeam({ d, inspectors, declared, run, pending }: { d: AppDetail; inspectors: Inspector[]; declared: Declared[]; run: (fn: () => Promise<ActionResult>) => void; pending: boolean }) {
+  const { message } = App.useApp();
   const [lead, setLead] = useState<string>();
   const [members, setMembers] = useState<string[]>([]);
   const [date, setDate] = useState<string>(dayjs().add(10, "day").format("YYYY-MM-DD"));
   const [scope, setScope] = useState("");
+  const [suggestion, setSuggestion] = useState<TeamSuggestionData | null>(null);
+  const [used, setUsed] = useState<{ lead: string; members: string[]; date: string | null } | null>(null);
+  const [asking, setAsking] = useState(false);
+  const suggest = async () => {
+    setAsking(true);
+    try {
+      const r = await suggestInspectionTeam(d.app.ref);
+      if (r.ok) setSuggestion(r.suggestion);
+      else message.error(r.message, 6);
+    } finally {
+      setAsking(false);
+    }
+  };
   const conflict = (u: string) => {
     const m = inspectors.find((i) => i.username === u);
     if (!m) return null;
@@ -200,6 +219,25 @@ function ScheduleTeam({ d, inspectors, declared, run, pending }: { d: AppDetail;
       extra={<FillDemo onClick={() => setScope("Faculty files and appointment letters for every linked teacher; laboratories with equipment registers; library stock and journal subscriptions; student records for the current intake.")} />}
     >
       <Space orientation="vertical" style={{ width: "100%" }}>
+        {suggestion ? (
+          <TeamSuggestion
+            s={suggestion}
+            onDismiss={() => setSuggestion(null)}
+            onUse={(l, m, dt) => {
+              setLead(l);
+              setMembers(m);
+              if (dt) setDate(dt);
+              // The audit compares the booking with what the system proposed (before any swap).
+              setUsed({ lead: suggestion.team.find((t) => t.role === "LEAD")?.username ?? l, members: suggestion.team.filter((t) => t.role !== "LEAD").map((t) => t.username), date: suggestion.date });
+              setSuggestion(null);
+              message.success("Team and date filled in below. Check them, add the scope, then Schedule and notify.", 4);
+            }}
+          />
+        ) : (
+          <Button block icon={<BulbOutlined />} loading={asking} onClick={suggest} className="suggest-team" style={{ borderColor: "#ddd3fb", color: "#5b3cc4", background: "#faf8ff" }}>
+            Suggest a team
+          </Button>
+        )}
         <div className="faint" style={{ fontSize: 12 }}>Team lead (submits the checklist)</div>
         <Select className="pcp-inspector-select" placeholder="Inspection panel member" style={{ width: "100%" }} value={lead} onChange={setLead} options={inspectors.map(opt)} />
         <div className="faint" style={{ fontSize: 12 }}>Members (optional)</div>
@@ -232,7 +270,7 @@ function ScheduleTeam({ d, inspectors, declared, run, pending }: { d: AppDetail;
         <div className="faint" style={{ fontSize: 12 }}>Visit date</div>
         <DatePicker style={{ width: "100%" }} value={dayjs(date)} onChange={(v) => v && setDate(v.format("YYYY-MM-DD"))} />
         <Input.TextArea rows={3} placeholder="What the institution should prepare (scope)" value={scope} onChange={(e) => setScope(e.target.value)} />
-        <Button type="primary" block icon={<TeamOutlined />} loading={pending} disabled={!lead} onClick={() => run(() => scheduleInspection(d.app.ref, lead!, date, { members, scope }))}>
+        <Button type="primary" block icon={<TeamOutlined />} loading={pending} disabled={!lead} onClick={() => run(() => scheduleInspection(d.app.ref, lead!, date, { members, scope, suggestion: used }))}>
           Schedule and notify
         </Button>
       </Space>
@@ -301,12 +339,15 @@ export default function PcpApplicationView({
   username,
   inspectors,
   declared,
+  override,
 }: {
   d: AppDetail;
   perms: PcpPerms;
   username: string;
   inspectors: Inspector[];
   declared: Declared[];
+  /** Super Administrator only: the override panel (RFP 4.1.2). */
+  override?: OverrideData | null;
 }) {
   const { message } = App.useApp();
   const router = useRouter();
@@ -327,7 +368,7 @@ export default function PcpApplicationView({
 
   const scheduled = d.inspections.find((i) => i.status === "SCHEDULED");
   const myRole = scheduled?.team.find((m) => m.username === username)?.role;
-  const openDefs = d.deficiencies.filter((x) => x.status !== "ACCEPTED");
+  const openDefs = d.deficiencies.filter((x) => x.status !== "ACCEPTED" && x.status !== "WITHDRAWN");
   const acc = d.app.kind !== "NOC";
   const pg = !!d.pg;
   // The technical officer raises (and reviews the answers to) deficiencies found in the technical review.
@@ -461,6 +502,9 @@ export default function PcpApplicationView({
         </Button>
       </ActionBlock>,
     );
+
+  // An administrative hold stops every step: nobody's panels apply until the super administrator releases it.
+  if (d.hold) panels.length = 0;
 
   const report = d.inspections.find((i) => i.status === "SUBMITTED");
 
@@ -635,10 +679,13 @@ export default function PcpApplicationView({
               <Space orientation="vertical" style={{ width: "100%" }} size={12}>
                 {panels}
               </Space>
+            ) : d.hold ? (
+              <Typography.Text type="secondary">The case is on administrative hold. No step can be taken until the super administrator releases it.</Typography.Text>
             ) : (
               <Typography.Text type="secondary">Nothing for your role at this stage. The banner above shows who holds the file.</Typography.Text>
             )}
           </Card>
+          {override ? <CaseOverridePanel key={`${d.overrides.length}-${s}-${d.hold ? 1 : 0}`} d={d} data={override} run={run} pending={pending} withOtp={withOtp} /> : null}
           <CertificateCard d={d} />
           <Card size="small" title="Fee" style={{ marginBottom: 16 }} extra={d.app.feePaidAt ? <Pill value="APPROVED" label={`Paid ${fmtDate(d.app.feePaidAt)}`} /> : <Pill value="REJECTED" label="Unpaid" />}>
             <div className="tnum" style={{ fontSize: 20, fontWeight: 700 }}>{formatPKR(d.app.feeAmount)}</div>

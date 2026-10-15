@@ -1,4 +1,5 @@
 // Module: NOC / accreditation / renewal case workflow. Owner: workflow work.
+import { sql } from "drizzle-orm";
 import { boolean, date, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 /** What the institution declares about a postgraduate supervisor on a case; the technical officer checks it. */
@@ -96,4 +97,42 @@ export const inspectionScores = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("inspection_scores_once").on(t.inspectionId)],
+);
+
+/**
+ * Super administrator overrides (RFP 4.1.2 "global overrides"): reassign the case officer, extend the current
+ * stage's time limit, reopen a returned or deferred case at a chosen stage, place or release an administrative
+ * hold. Each one has a reason and a one-time code, an audit entry and a timeline event (`eventId`).
+ * An override never records a council decision.
+ */
+export const caseOverrides = pgTable("case_overrides", {
+  id: serial("id").primaryKey(),
+  ref: text("ref").notNull().unique(), // OVR-2026-0001
+  applicationId: integer("application_id").notNull(),
+  kind: text("kind").notNull(), // REASSIGN_OFFICER | EXTEND_DEADLINE | REOPEN | HOLD | RELEASE_HOLD
+  reason: text("reason").notNull(), // PCP-internal; never shown to the institution
+  before: jsonb("before").$type<Record<string, unknown>>().notNull().default({}),
+  after: jsonb("after").$type<Record<string, unknown>>().notNull().default({}),
+  publicNote: text("public_note"), // what the institution sees on its timeline and in its notice
+  eventId: integer("event_id"), // the application_events row on the case timeline
+  actor: text("actor").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** An administrative hold: no workflow step can be taken and the stage clock is paused until it is released. */
+export const caseHolds = pgTable(
+  "case_holds",
+  {
+    id: serial("id").primaryKey(),
+    applicationId: integer("application_id").notNull(),
+    status: text("status").notNull(), // the case status when the hold was placed
+    reason: text("reason").notNull(),
+    remainingSeconds: integer("remaining_seconds"), // time left on the stage clock when paused (negative if overdue); null without a clock
+    placedBy: text("placed_by").notNull(),
+    placedAt: timestamp("placed_at", { withTimezone: true }).notNull().defaultNow(),
+    releasedBy: text("released_by"),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    releaseReason: text("release_reason"),
+  },
+  (t) => [uniqueIndex("one_open_hold_per_case").on(t.applicationId).where(sql`released_at is null`)],
 );
