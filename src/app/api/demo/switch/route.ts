@@ -6,6 +6,9 @@ import { quickLoginEnabled } from "@/lib/demo";
 /**
  * Demo build only: switch persona with a plain form POST (a full page load), so the presenter guide
  * never races the router refreshing a page the new persona may not open.
+ * With DEMO_MODE on, a sign-in through this switch counts as having passed the officer sign-in code
+ * (see officerCodeSatisfied in src/lib/officer-code.ts), so switching to a PCP or provincial officer
+ * opens their workspace directly. A real Keycloak sign-in still asks for the code.
  */
 export async function POST(req: Request) {
   if (!quickLoginEnabled()) return new Response("Not found", { status: 404 });

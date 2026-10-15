@@ -64,7 +64,7 @@ export type Report = {
 export type DrillResult = { title: string; columns: ReportCol[]; rows: Record<string, Cell>[]; truncated?: boolean };
 
 export const PROVINCES = ["Punjab", "Sindh", "Khyber Pakhtunkhwa", "Balochistan", "Gilgit-Baltistan", "Islamabad Capital Territory", "Azad Jammu and Kashmir"];
-export const PROGRAMME_LABELS: Record<string, string> = { PHARMD: "PharmD", TECH: "Pharmacy Technician" };
+export const PROGRAMME_LABELS: Record<string, string> = { PHARMD: "PharmD", TECH: "Pharmacy Technician", MPHIL: "MS/MPhil", PHD: "PhD" };
 
 /** Filters to and from a URL query string (the page, the export links and the server all use this). */
 export function filtersToQuery(f: ReportFilters) {
@@ -85,7 +85,7 @@ export function filtersFromQuery(q: URLSearchParams | Record<string, string | st
   return {
     province: get("province"),
     sector: sector === "Public" || sector === "Private" ? sector : undefined,
-    programme: programme === "PHARMD" || programme === "TECH" ? programme : undefined,
+    programme: programme && programme in PROGRAMME_LABELS ? programme : undefined,
     year: Number.isInteger(year) && year > 1990 && year < 2100 ? year : undefined,
     status: get("status"),
     from: get("from"),

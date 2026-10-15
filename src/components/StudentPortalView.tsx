@@ -48,7 +48,7 @@ export default function StudentPortalView({ name, record: r }: { name: string; r
   const next = r.eligible
     ? "You are eligible to apply for registration as a pharmacist. Apply to your provincial pharmacy council and quote your PCP student ID."
     : r.status === "GRADUATED"
-      ? "Your institution asks the university and HEC to confirm your degree. Once it is confirmed, you become eligible for registration. You do not need to do anything."
+      ? "Your institution asks the university and HEC to confirm your degree. Once it is confirmed, you become eligible for registration. To get your eligibility certificate, request it below: your institution confirms the degree when it forwards the request."
       : r.status === "WITHDRAWN"
         ? "Your record shows that you withdrew from the programme. If this is wrong, contact your institution's examination office."
         : `Your institution records your result after each annual examination. You graduate after passing year ${len}.`;
@@ -120,7 +120,7 @@ export default function StudentPortalView({ name, record: r }: { name: string; r
         <Alert style={{ marginTop: 18 }} type={r.eligible ? "success" : "info"} showIcon title={r.eligible ? "Eligible for registration" : "What happens next"} description={next} />
       </Card>
       <div className="muted" style={{ fontSize: 13 }}>
-        Something wrong? Ask your institution&apos;s examination office to correct it, or write to PCP through the <Link href="/student/help">help desk</Link>.
+        Something wrong? Raise a correction request below, or write to PCP through the <Link href="/student/help">help desk</Link>.
       </div>
     </>
   );

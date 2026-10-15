@@ -55,7 +55,7 @@ export type RetentionSummary = {
 const DAY = 86400000;
 const day = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 const ago = (d: Date, now: Date) => Math.floor((now.getTime() - d.getTime()) / DAY);
-const PROG: Record<string, string> = { PHARMD: "PharmD", TECH: "Pharmacy Technician" };
+const PROG: Record<string, string> = { PHARMD: "PharmD", TECH: "Pharmacy Technician", MPHIL: "MS/MPhil", PHD: "PhD" };
 
 /** The policy in force (the latest version of the rule), or the defaults when the rule is missing. */
 export async function retentionPolicy(): Promise<{ value: RetentionPolicy; version: number | null }> {

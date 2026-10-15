@@ -1,11 +1,13 @@
 import { and, desc, eq, gte, inArray, isNotNull, lt, lte, ne, notInArray, sql } from "drizzle-orm";
 import ExecutiveDashboard, { type WorkItem } from "@/components/ExecutiveDashboard";
+import GovernanceWork from "@/components/GovernanceWork";
 import { db, schema } from "@/db";
 import { accessReviewTask } from "@/lib/access-review";
+import { loadGovernanceWork } from "@/lib/governance-data";
 import { runJobsIfStale } from "@/lib/scheduler";
 import { requirePermission } from "@/lib/session";
 import { iso } from "@/lib/util";
-import { CLOSED_STATUSES, OPEN_STATUSES, holderLabel, needsAction } from "@/lib/workflow";
+import { CLOSED_STATUSES, OPEN_STATUSES, PG_TYPES, holderLabel, needsAction } from "@/lib/workflow";
 
 const count = (rows: { n: number }[]) => rows[0]?.n ?? 0;
 
@@ -26,6 +28,9 @@ export default async function PcpDashboard() {
     institutions: count(await db.select({ n }).from(schema.institutions)),
     pharmd: count(await db.select({ n }).from(schema.programs).where(and(eq(schema.programs.type, "PHARMD"), eq(schema.programs.nocStatus, "APPROVED")))),
     tech: count(await db.select({ n }).from(schema.programs).where(and(eq(schema.programs.type, "TECH"), eq(schema.programs.nocStatus, "APPROVED")))),
+    // Postgraduate programmes are accredited per field; the HEC issues their NOC (RFP 4.1.10).
+    mphil: count(await db.select({ n }).from(schema.programs).where(and(eq(schema.programs.type, "MPHIL"), eq(schema.programs.accreditationStatus, "VALID")))),
+    phd: count(await db.select({ n }).from(schema.programs).where(and(eq(schema.programs.type, "PHD"), eq(schema.programs.accreditationStatus, "VALID")))),
     pharmacists: count(await db.select({ n }).from(schema.pharmacists)),
     pendingNoc: count(await db.select({ n }).from(schema.applications).where(and(eq(schema.applications.kind, "NOC"), notClosed))),
     pendingAcc: count(await db.select({ n }).from(schema.applications).where(and(inArray(schema.applications.kind, ["ACCREDITATION", "RENEWAL"]), notClosed))),
@@ -41,6 +46,7 @@ export default async function PcpDashboard() {
     duplicates: count(await db.select({ n }).from(schema.duplicateFlags).where(eq(schema.duplicateFlags.status, "OPEN"))),
     pharmacistsActive: count(await db.select({ n }).from(schema.pharmacists).where(eq(schema.pharmacists.status, "ACTIVE"))),
   };
+  Object.assign(kpis, { pg: kpis.mphil + kpis.phd });
 
   // ---------- My work: what is due, what is blocked or overdue, what was decided ----------
   const open = await db
@@ -49,6 +55,7 @@ export default async function PcpDashboard() {
       ref: schema.applications.ref,
       kind: schema.applications.kind,
       programType: schema.applications.programType,
+      field: schema.applications.field,
       status: schema.applications.status,
       stageDueAt: schema.applications.stageDueAt,
       escalatedAt: schema.applications.escalatedAt,
@@ -63,14 +70,14 @@ export default async function PcpDashboard() {
   const leads = ids.length ? await db.select({ id: schema.inspections.applicationId, lead: schema.inspections.inspector }).from(schema.inspections).where(and(inArray(schema.inspections.applicationId, ids), eq(schema.inspections.status, "SCHEDULED"))) : [];
   const item = (o: (typeof open)[number]): WorkItem & { mine: boolean } => {
     const ctx = { reviewDone: reviewed.has(o.id), deferUntil: o.deferUntil, inspectionLead: leads.find((l) => l.id === o.id)?.lead ?? null };
-    return { ref: o.ref, kind: o.kind, programType: o.programType, status: o.status, inst: o.instShort, dueAt: iso(o.stageDueAt), holder: holderLabel(o.status, ctx), escalated: !!o.escalatedAt, mine: needsAction(o.status, user.roles, user.username, ctx) };
+    return { ref: o.ref, kind: o.kind, programType: o.programType, field: o.field, status: o.status, inst: o.instShort, dueAt: iso(o.stageDueAt), holder: holderLabel(o.status, ctx), escalated: !!o.escalatedAt, mine: needsAction(o.status, user.roles, user.username, ctx) };
   };
   const all = open.map(item);
   const byDue = (a: WorkItem, b: WorkItem) => String(a.dueAt ?? "9").localeCompare(String(b.dueAt ?? "9"));
   const due = all.filter((w) => w.mine).sort(byDue);
   const blocked = all.filter((w) => w.dueAt && new Date(w.dueAt) < now).sort(byDue);
   const decidedRows = await db
-    .select({ ref: schema.applications.ref, kind: schema.applications.kind, programType: schema.applications.programType, status: schema.applications.status, decision: schema.applications.decision, decidedAt: schema.applications.decidedAt, deferUntil: schema.applications.deferUntil, instShort: schema.institutions.shortCode })
+    .select({ ref: schema.applications.ref, kind: schema.applications.kind, programType: schema.applications.programType, field: schema.applications.field, status: schema.applications.status, decision: schema.applications.decision, decidedAt: schema.applications.decidedAt, deferUntil: schema.applications.deferUntil, instShort: schema.institutions.shortCode })
     .from(schema.applications)
     .innerJoin(schema.institutions, eq(schema.institutions.id, schema.applications.institutionId))
     .where(and(isNotNull(schema.applications.decidedAt), gte(schema.applications.decidedAt, new Date(Date.now() - 30 * 86400000))))
@@ -79,7 +86,8 @@ export default async function PcpDashboard() {
 
   const byProvince = await db.select({ k: schema.institutions.province, n }).from(schema.institutions).groupBy(schema.institutions.province);
   const bySector = await db.select({ k: schema.institutions.sector, n }).from(schema.institutions).groupBy(schema.institutions.sector);
-  const nocStatus = await db.select({ k: schema.programs.nocStatus, n }).from(schema.programs).groupBy(schema.programs.nocStatus);
+  // NOC status covers PharmD and Technician only: the HEC issues postgraduate NOCs.
+  const nocStatus = await db.select({ k: schema.programs.nocStatus, n }).from(schema.programs).where(notInArray(schema.programs.type, [...PG_TYPES])).groupBy(schema.programs.nocStatus);
   const accStatus = await db.select({ k: schema.programs.accreditationStatus, n }).from(schema.programs).groupBy(schema.programs.accreditationStatus);
   const enrol = await db
     .select({ year: schema.students.enrollmentYear, type: schema.students.programType, n })
@@ -110,7 +118,7 @@ export default async function PcpDashboard() {
   // Watchlist: accreditation expiring within 180 days
   const in180 = new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10);
   const renewals = await db
-    .select({ name: schema.institutions.name, code: schema.institutions.code, type: schema.programs.type, until: schema.programs.accreditationValidUntil })
+    .select({ name: schema.institutions.name, code: schema.institutions.code, type: schema.programs.type, field: schema.programs.field, until: schema.programs.accreditationValidUntil })
     .from(schema.programs)
     .innerJoin(schema.institutions, eq(schema.institutions.id, schema.programs.institutionId))
     .where(and(isNotNull(schema.programs.accreditationValidUntil), lte(schema.programs.accreditationValidUntil, in180)))
@@ -119,6 +127,7 @@ export default async function PcpDashboard() {
   return (
     <ExecutiveDashboard
       adminTasks={[await accessReviewTask(user)].filter((t) => t !== null)}
+      moreWork={<GovernanceWork data={await loadGovernanceWork(user)} />}
       kpis={kpis}
       month={now.toISOString().slice(0, 7)}
       work={{
@@ -126,7 +135,7 @@ export default async function PcpDashboard() {
         dueTotal: due.length,
         blocked: blocked.slice(0, 6),
         blockedTotal: blocked.length,
-        decided: decidedRows.map((r) => ({ ref: r.ref, kind: r.kind, programType: r.programType, status: r.status, inst: r.instShort, decision: r.decision ?? r.status, at: iso(r.decidedAt)!, deferUntil: r.deferUntil })),
+        decided: decidedRows.map((r) => ({ ref: r.ref, kind: r.kind, programType: r.programType, field: r.field, status: r.status, inst: r.instShort, decision: r.decision ?? r.status, at: iso(r.decidedAt)!, deferUntil: r.deferUntil })),
       }}
       byProvince={byProvince}
       bySector={bySector}

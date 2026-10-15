@@ -11,7 +11,7 @@ import { availabilityFor, isVerifiedLink, linksFor, nextYearRef, notifyVerifiers
 import { CHANGE_KIND_LABELS, DESIGNATIONS, QUALIFICATIONS } from "@/lib/registry-shared";
 import { requireInstitution, requirePermission } from "@/lib/session";
 import { notify } from "@/lib/util";
-import { PROGRAM_LABELS } from "@/lib/workflow";
+import { PROGRAM_LABELS, UG_TYPES } from "@/lib/workflow";
 
 export type ActionResult = { ok: boolean; message: string; level?: "success" | "warning" | "error" };
 
@@ -128,7 +128,7 @@ async function nextFacultyId(exec: Executor) {
 }
 
 async function institutionProgrammes(institutionId: number) {
-  return (await db.select({ type: schema.programs.type }).from(schema.programs).where(eq(schema.programs.institutionId, institutionId))).map((p) => p.type);
+  return (await db.select({ type: schema.programs.type }).from(schema.programs).where(and(eq(schema.programs.institutionId, institutionId), inArray(schema.programs.type, [...UG_TYPES])))).map((p) => p.type);
 }
 
 function revalidateFaculty() {
@@ -528,6 +528,9 @@ export async function decideFacultyChange(id: number, approve: boolean, note: st
           : `PCP rejected the ${label.toLowerCase()} for ${person.fullName} (${person.pcpId}): ${note.trim()}. The record stays as it was.`,
         "/institution/faculty",
       );
+      // A request the teacher declared from their own login (faculty self-service): tell the teacher too.
+      if ((fcr.details as { declaredBy?: string }).declaredBy === "faculty")
+        await notify(tx, `user:${fcr.requestedBy}`, `${label} ${fcr.ref} ${approve ? "approved" : "rejected"}`, approve ? `PCP approved your declaration for ${inst.name}.` : `PCP did not approve your declaration for ${inst.name}: ${note.trim()}.`, "/faculty");
       await audit(tx, { actor: user.username, action: approve ? "faculty.change.approved" : "faculty.change.rejected", entity: "faculty", entityId: person.pcpId, details: { ref: fcr.ref, kind: fcr.kind, note } });
     });
   } catch (e) {

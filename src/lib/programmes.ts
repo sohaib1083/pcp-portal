@@ -1,14 +1,19 @@
 // Programme cards for an institution: NOC, accreditation, intake, the accreditation history (old rows are
 // never overwritten) and a pending row for any accreditation or renewal case still open (guide section 5).
+// Postgraduate programmes (MS/MPhil, PhD) have one card per field of study and start with accreditation,
+// because the HEC issues their NOC (RFP 4.1.10).
 import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requestedPeriod } from "./appdetail";
-import { getRule, type ProgramRule } from "./rules";
-import { CLOSED_STATUSES } from "./workflow";
+import { accreditationYearsFor } from "./rules";
+import { CLOSED_STATUSES, PG_TYPES, UG_TYPES, isPg } from "./workflow";
 
 export type HistoryRow = { key: string; kind: string; from: number; until: number; intake: number; decision: string; ref: string | null; pending: boolean; draft?: boolean };
 export type ProgrammeCardData = {
   type: string;
+  /** Postgraduate field of study; "" for PharmD and Technician. */
+  field: string;
+  postgraduate: boolean;
   nocStatus: string;
   nocNumber: string | null;
   accreditationStatus: string;
@@ -18,6 +23,8 @@ export type ProgrammeCardData = {
   openCase: { ref: string; kind: string; status: string } | null;
   openNoc: { ref: string; status: string } | null;
 };
+
+const ORDER = [...UG_TYPES, ...PG_TYPES] as string[];
 
 export async function programmeCards(institutionId: number): Promise<ProgrammeCardData[]> {
   const programs = await db.select().from(schema.programs).where(eq(schema.programs.institutionId, institutionId));
@@ -29,18 +36,15 @@ export async function programmeCards(institutionId: number): Promise<ProgrammeCa
     .where(and(eq(schema.applications.institutionId, institutionId), notInArray(schema.applications.status, CLOSED_STATUSES)))
     .orderBy(desc(schema.applications.id));
   const years: Record<string, number> = {};
-  for (const t of ["PHARMD", "TECH"]) {
-    try {
-      years[t] = (await getRule<ProgramRule>(`noc.${t}`)).value.accreditationYears ?? 3;
-    } catch {
-      years[t] = 3;
-    }
-  }
+  for (const t of new Set(programs.map((p) => p.type))) years[t] = await accreditationYearsFor(t);
   return programs
-    .sort((a, b) => a.type.localeCompare(b.type))
+    .sort((a, b) => ORDER.indexOf(a.type) - ORDER.indexOf(b.type) || a.field.localeCompare(b.field))
     .map((p) => {
-      const openAcc = open.find((a) => a.programType === p.type && a.kind !== "NOC");
-      const openNoc = open.find((a) => a.programType === p.type && a.kind === "NOC");
+      const pg = isPg(p.type);
+      const mine = (a: (typeof open)[number]) => a.programType === p.type && (a.field ?? "") === p.field;
+      // A postgraduate programme's first case is its accreditation (the HEC issues the NOC).
+      const openAcc = open.find((a) => mine(a) && a.kind !== "NOC");
+      const openNoc = pg ? null : open.find((a) => mine(a) && a.kind === "NOC");
       const pending: HistoryRow[] = openAcc
         ? (() => {
             const per = requestedPeriod(openAcc.kind, p.accreditationValidUntil, years[p.type], openAcc.submittedAt ?? new Date());
@@ -49,6 +53,8 @@ export async function programmeCards(institutionId: number): Promise<ProgrammeCa
         : [];
       return {
         type: p.type,
+        field: p.field,
+        postgraduate: pg,
         nocStatus: p.nocStatus,
         nocNumber: p.nocNumber,
         accreditationStatus: p.accreditationStatus,

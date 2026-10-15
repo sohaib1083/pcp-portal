@@ -1,7 +1,8 @@
 // Read models for the council, appeals and help desk screens. Everything returned is plain JSON for client components.
-import { and, asc, desc, eq, inArray, lte, or, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, or, type SQL } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { caseLabel, readyForCouncil, slaFor } from "./council";
+import { COUNCIL, caseLabel, readyForCouncil, slaFor } from "./council";
+import { courtShort, pkToday } from "./governance-shared";
 import { can } from "./roles";
 import { iso } from "./util";
 
@@ -26,20 +27,26 @@ export async function loadMeetingsOverview() {
   const ready = await readyForCouncil(db);
   const inst = await instMap();
   const today = new Date().toISOString().slice(0, 10);
-  const next = [...meetings].filter((m) => m.status !== "CLOSED" && m.meetingDate >= today).sort((a, b) => a.meetingDate.localeCompare(b.meetingDate))[0] ?? null;
+  const next = [...meetings].filter((m) => m.committee === COUNCIL && m.status !== "CLOSED" && m.meetingDate >= today).sort((a, b) => a.meetingDate.localeCompare(b.meetingDate))[0] ?? null;
+  const actions = await db.select({ meetingId: schema.committeeActions.meetingId, status: schema.committeeActions.status }).from(schema.committeeActions);
   const year = String(new Date().getFullYear());
   return {
     meetings: meetings.map((m) => {
       const mine = items.filter((i) => i.meetingId === m.id);
+      const tasks = actions.filter((a) => a.meetingId === m.id);
       return {
         ref: m.ref,
+        committee: m.committee,
         title: m.title,
         date: m.meetingDate,
         status: m.status,
         items: mine.length,
         cases: mine.filter((i) => i.applicationId).length,
         appeals: mine.filter((i) => i.appealId).length,
-        decided: mine.filter((i) => i.decision).length,
+        others: mine.filter((i) => !i.applicationId && !i.appealId).length,
+        decided: mine.filter((i) => i.decision || i.resolution).length,
+        actions: tasks.length,
+        actionsOpen: tasks.filter((a) => a.status !== "DONE").length,
         minutesDocumentId: m.minutesDocumentId,
       };
     }),
@@ -50,6 +57,33 @@ export async function loadMeetingsOverview() {
     ],
     decisionsThisYear: items.filter((i) => i.decision && iso(i.decidedAt)?.startsWith(year)).length,
   };
+}
+
+/** The other kinds of agenda item: a court case, a letter, or another matter (free text). */
+async function otherItem(it: typeof schema.councilItems.$inferSelect, inst: Awaited<ReturnType<typeof instMap>>) {
+  if (it.courtCaseId) {
+    const c = await db.query.courtCases.findFirst({ where: eq(schema.courtCases.id, it.courtCaseId) });
+    if (!c) return null;
+    const stay = await db.query.courtOrders.findFirst({ where: and(eq(schema.courtOrders.courtCaseId, c.id), eq(schema.courtOrders.kind, "STAY"), isNull(schema.courtOrders.liftedAt)) });
+    const [next] = await db
+      .select()
+      .from(schema.courtHearings)
+      .where(and(eq(schema.courtHearings.courtCaseId, c.id), eq(schema.courtHearings.status, "SCHEDULED"), gte(schema.courtHearings.hearingDate, pkToday())))
+      .orderBy(asc(schema.courtHearings.hearingDate))
+      .limit(1);
+    return {
+      kind: "court" as const,
+      ref: c.ref,
+      court: { court: c.court, courtShort: courtShort(c.court), caseNumber: c.caseNumber, title: c.title, status: c.status, linkedRef: c.linkedRef, counsel: c.counsel, nextHearing: next?.hearingDate ?? null, stayUntil: stay ? (stay.stayUntil ?? "further orders") : null, inst: inst(c.institutionId) },
+      letter: null,
+    };
+  }
+  if (it.letterId) {
+    const l = await db.query.correspondence.findFirst({ where: eq(schema.correspondence.id, it.letterId) });
+    if (!l) return null;
+    return { kind: "letter" as const, ref: l.ref, court: null, letter: { direction: l.direction, party: l.party, subject: l.subject, date: l.letterDate, status: l.status, linkedRef: l.linkedRef, documentId: l.documentId } };
+  }
+  return { kind: "other" as const, ref: `item-${it.id}`, court: null, letter: null };
 }
 
 /** The inspection report behind a case: the latest submitted checklist, its summary and the filed PDF. */
@@ -68,7 +102,10 @@ async function inspectionFor(applicationId: number, name: (u: string) => string 
     .limit(1);
   if (!insp) return null;
   const list = insp.checklist ?? [];
+  // The score the lead entered on the tablet (RFP 4.1.2), with the pass mark of the rule used at submission.
+  const score = await db.query.inspectionScores.findFirst({ where: eq(schema.inspectionScores.inspectionId, insp.id) });
   return {
+    score: score ? { total: score.total, max: score.max, percent: score.percent, passPercent: score.passPercent, passed: score.passed } : null,
     summary: insp.summary,
     inspector: name(insp.inspector),
     date: insp.scheduledFor,
@@ -110,12 +147,20 @@ export async function loadMeeting(ref: string) {
       deferUntil: it.deferUntil,
       decidedAt: iso(it.decidedAt),
       decidedBy: name(it.decidedBy),
+      subject: it.subject,
+      resolution: it.resolution,
+      resolvedBy: name(it.resolvedBy),
+      resolvedAt: iso(it.resolvedAt),
+      ref: "",
+      court: null as null | NonNullable<Awaited<ReturnType<typeof otherItem>>>["court"],
+      letter: null as null | NonNullable<Awaited<ReturnType<typeof otherItem>>>["letter"],
     };
     if (it.applicationId) {
       const a = await db.query.applications.findFirst({ where: eq(schema.applications.id, it.applicationId) });
       if (!a) continue;
       items.push({
         ...base,
+        ref: a.ref,
         kind: "case" as const,
         case: {
           ref: a.ref,
@@ -136,6 +181,7 @@ export async function loadMeeting(ref: string) {
       const a = await db.query.applications.findFirst({ where: eq(schema.applications.id, p.applicationId) });
       items.push({
         ...base,
+        ref: p.ref,
         kind: "appeal" as const,
         case: null,
         appeal: {
@@ -155,10 +201,13 @@ export async function loadMeeting(ref: string) {
           underAppeal: await decisionUnderAppeal(p),
         },
       });
+    } else {
+      const o = await otherItem(it, inst);
+      if (o) items.push({ ...base, ref: o.ref, kind: o.kind, court: o.court, letter: o.letter, case: null, appeal: null });
     }
   }
   return {
-    meeting: { ref: m.ref, title: m.title, date: m.meetingDate, status: m.status, minutesDocumentId: m.minutesDocumentId, startedAt: iso(m.startedAt), closedAt: iso(m.closedAt), createdBy: name(m.createdBy) },
+    meeting: { ref: m.ref, committee: m.committee, isCouncil: m.committee === COUNCIL, title: m.title, date: m.meetingDate, status: m.status, minutesDocumentId: m.minutesDocumentId, startedAt: iso(m.startedAt), closedAt: iso(m.closedAt), createdBy: name(m.createdBy) },
     items,
   };
 }

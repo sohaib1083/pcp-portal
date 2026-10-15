@@ -106,6 +106,9 @@ export const COVERAGE: CoverageSection[] = [
     items: [
       { req: "Programme type is asked first; checklist, faculty rules, lab rules and fee load for that type", how: "Choosing Pharmacy Technician loads its own rules and fee.", status: "built", try: { as: "ruh.poc", to: "/institution/applications" } },
       { req: "A college can hold both; the status of one does not hide the other", how: "Separate programme cards on the same institution.", status: "built", try: { as: "ruh.poc", to: "/institution/profile" } },
+      { req: "Postgraduate (RFP 4.1.10): MS/MPhil or PhD asked first, then the field of study; the institution uploads the HEC NOC for the PG programme", how: "New postgraduate programme on Applications: type, then the field from PCP's reference list. One programme card per field, next to PharmD and Technician.", status: "built", try: { as: "rbu.poc", to: "/institution/applications" } },
+      { req: "A separate PG proforma and the faculty eligible for supervision", how: "Intake, duration, coursework credit hours, thesis, research labs and equipment, journals and HEC Digital Library access; supervisors linked by Faculty ID and checked against the pg.rules rule, e.g. \"PhD Pharmacology: 1 eligible supervisor linked, 2 required for intake 6\".", status: "built", try: { as: "rbu.poc", to: "/institution/applications" } },
+      { req: "Technical officer (RFP 4.1.2): the academic check, the PG proforma review and a check of each supervisor", how: "Cases waiting for technical review are on the technical officer's dashboard.", status: "built", try: { as: "pcp.technical", to: "/pcp" } },
     ],
   },
   {
@@ -150,6 +153,7 @@ export const COVERAGE: CoverageSection[] = [
       { req: "The coordinator assigns a team; no member inspects an institution in their own province", how: "Same-province rule plus declared conflicts, checked for every member.", status: "built", try: { as: "pcp.coordinator", to: "/pcp/inspections" } },
       { req: "The institution is told the date and the scope", how: "Alert and email with the date, what to prepare and the team size.", status: "simulated", try: { as: "ruh.poc", to: "/institution/messages" } },
       { req: "Tablet checklist: compliant, partly, non-compliant or not applicable, with remark, photo and document", how: "Photos and documents attach to each line; the report and its evidence are filed in the case, not sent as an email attachment.", status: "built", try: { as: "pcp.inspector", to: "/pcp/inspections" } },
+      { req: "Score entry panels (RFP 4.1.2): a score per checklist line, a total and a pass mark", how: "0 to 5 per line within the band of its result, weights and the pass mark from the inspection.scoring rule; the score shows on the report, the case and the Council agenda.", status: "built", try: { as: "pcp.inspector", to: "/pcp/inspections" } },
       { req: "A deficiency is a task: number, area, deadline, evidence needed", how: "For example DF-2026-00452; the institution uploads evidence and PCP accepts or returns it.", status: "built", try: { as: "ruh.dean", to: "/institution/applications" } },
       { req: "The dashboard counts outstanding deficiencies", how: "Tile that opens the list.", status: "built", try: { as: "pcp.officer", to: "/pcp" } },
     ],
@@ -170,7 +174,7 @@ export const COVERAGE: CoverageSection[] = [
       { req: "Email and a dashboard alert fire together for every case event, and every message is stored on the case", how: "Submission, receipt, return, deficiency, inspection date, decision, NOC, accreditation, expiry and annual return. In the demo, emails are stored under Messages and not sent.", status: "simulated", try: { as: "ruh.poc", to: "/institution/messages" } },
       { req: "Files sit under the institution by folder, with version, date, uploader, type, verification, expiry and hash", how: "Replacing a file adds a version; the previous one is kept.", status: "built", try: { as: "ruh.poc", to: "/institution/documents" } },
       { req: "A one-time code for anyone submitting a decision or a payment", how: "Every decision and payment asks for a code (filled in for you in the demo).", status: "simulated", try: { as: "pcp.secretary", to: "/pcp/council" } },
-      { req: "A one-time code at sign-in for officers", how: "Keycloak's two-factor sign-in is switched on for PCP roles at go-live; it is off here so anyone can try every role in one click.", status: "golive" },
+      { req: "A one-time code at sign-in for officers", how: "After the password, PCP and provincial officers enter a code sent by SMS before any of their pages open. The demo shows the code; the one-click Try it buttons skip this step.", status: "simulated", try: { open: "/login" } },
       { req: "An institution sees only itself; an officer sees their cases; a super administrator sees the system", how: "Institutions are fenced to their own records, inspectors see only the visits they are on, desk officers work the queue for their stage, and the Super administrator sees everything. Checked on every page and download, not just hidden in the menu.", status: "built", try: { as: "nhc.poc", to: "/institution" } },
       { req: "Session timeout on shared office computers", how: "Signed out after 30 minutes without activity, with a one-minute warning.", status: "built" },
     ],
@@ -218,6 +222,21 @@ export const COVERAGE: CoverageSection[] = [
       { req: "Data cleaning before import: duplicate faculty, missing CNIC, inconsistent names", how: "The duplicate and NADRA checks flag these on import.", status: "rollout" },
       { req: "Pilot with a few institutions per province, role-based training, paper and system side by side", how: "Part of the rollout plan.", status: "rollout" },
       { req: "Measures of success: days to decide an NOC, share returned for deficiency, annual returns on time", how: "A report with a target beside each measure.", status: "built", try: { as: "pcp.officer", to: "/pcp/reports" } },
+    ],
+  },
+  {
+    n: 15,
+    title: "Added by the updated RFP (October 2026)",
+    items: [
+      { req: "Court case and litigation ledger", how: "Cases by court with parties, counsel, hearings, orders and papers, linked to the institution and the PCP decision; reminders 7 days and 1 day before each hearing.", status: "built", try: { as: "pcp.legal", to: "/pcp/litigation" } },
+      { req: "A stay order stops action on the linked case", how: "The case shows a red banner and Council cannot decide it until the stay is lifted.", status: "built", try: { as: "pcp.legal", to: "/pcp/litigation" } },
+      { req: "Official correspondence management", how: "Inward and outward registers with numbers, marking to an officer, action dates, letters on the PCP letterhead, and filing under the institution and case.", status: "built", try: { as: "pcp.registration", to: "/pcp/correspondence" } },
+      { req: "Committee workflows, agenda routing and task tracking", how: "Accreditation, Inspection, Appeals and Finance committees besides the Council; agenda items from cases, appeals, court cases and letters; action points become tracked tasks.", status: "built", try: { as: "pcp.secretary", to: "/pcp/council" } },
+      { req: "Provincial councils: their own province only", how: "Institutions, pharmacists, inspections and reports for one province; another province's records and exports are refused on the server.", status: "built", try: { as: "punjab.council", to: "/province" } },
+      { req: "Validation routing through the provincial council", how: "A pharmacist's practice update and a council's register file are validated by the provincial officer before PCP registration.", status: "built", try: { as: "punjab.council", to: "/province" } },
+      { req: "Teachers keep their own academic profile", how: "Faculty ID, qualifications and links with history; qualification updates and attachment declarations go to PCP for verification.", status: "built", try: { as: "fac.noor", to: "/faculty" } },
+      { req: "Students: requests, tracking and certificate printing", how: "Corrections, enrolment letters and eligibility certificates through the examination officer and PCP; the certificate's QR check shows no CNIC.", status: "built", try: { as: "student.ruh", to: "/student" } },
+      { req: "Technology stack named in the RFP (React with Laravel)", how: "This demo uses React (Next.js) with a TypeScript server and PostgreSQL. The review suggests PCP words this as a modern open-source framework rather than one brand.", status: "rollout" },
     ],
   },
 ];

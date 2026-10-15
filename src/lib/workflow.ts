@@ -84,9 +84,12 @@ export const TRANSITIONS: Transition[] = [
   t(["DRAFT"], "SUBMITTED", "inst.app.submit", "Submit to PCP"),
   t(["SUBMITTED"], "UNDER_SCRUTINY", "pcp.app.scrutiny", "Start scrutiny"),
   t(DEFICIENCY_FROM, "DEFICIENCY_RAISED", "pcp.app.scrutiny", "Raise deficiency"),
+  // The technical officer raises a deficiency for a standard not met, and accepts the answer, during the technical review.
+  t(["TECHNICAL_REVIEW"], "DEFICIENCY_RAISED", "pcp.technical.review", "Raise deficiency"),
   t(["DEFICIENCY_RAISED"], "RESPONDED", "inst.deficiency.respond", "Respond"),
   t(["RESPONDED"], "UNDER_SCRUTINY", "pcp.app.scrutiny", "Accept responses"),
   t(["RESPONDED"], "TECHNICAL_REVIEW", "pcp.app.scrutiny", "Accept responses"),
+  t(["RESPONDED"], "TECHNICAL_REVIEW", "pcp.technical.review", "Accept responses"),
   t(["RESPONDED"], "INSPECTION_SUBMITTED", "pcp.app.scrutiny", "Accept responses"),
   t(["RESPONDED"], "DEFERRED", "pcp.app.scrutiny", "Accept responses"),
   t(["UNDER_SCRUTINY"], "TECHNICAL_REVIEW", "pcp.app.scrutiny", "Pass scrutiny"),
@@ -139,7 +142,8 @@ export function pendingPermission(status: string, ctx: HolderCtx = {}): Permissi
     case "INSPECTION_SUBMITTED":
       return "pcp.app.scrutiny";
     case "TECHNICAL_REVIEW":
-      return ctx.reviewDone ? "pcp.inspection.schedule" : "pcp.app.scrutiny";
+      // The academic check is the technical officer's (RFP 4.1.2); case officers hold the permission too.
+      return ctx.reviewDone ? "pcp.inspection.schedule" : "pcp.technical.review";
     case "INSPECTION_SCHEDULED":
       return "pcp.inspection.submit";
     case "COUNCIL_REVIEW":
@@ -173,7 +177,7 @@ export function holderLabel(status: string, ctx: HolderCtx = {}) {
     case "INSPECTION_SUBMITTED":
       return "Officer";
     case "TECHNICAL_REVIEW":
-      return ctx.reviewDone ? "Coordinator" : "Officer";
+      return ctx.reviewDone ? "Coordinator" : "Technical officer";
     case "DEFICIENCY_RAISED":
       return "Institution";
     case "INSPECTION_SCHEDULED":
@@ -198,7 +202,42 @@ export const KIND_LABELS: Record<string, string> = {
 export const PROGRAM_LABELS: Record<string, string> = {
   PHARMD: "PharmD",
   TECH: "Pharmacy Technician",
+  MPHIL: "MS/MPhil",
+  PHD: "PhD",
 };
+
+/** Undergraduate programmes: the student ledger, annual returns and faculty appointments are for these. */
+export const UG_TYPES = ["PHARMD", "TECH"] as const;
+/** Postgraduate programmes (RFP 4.1.10): accredited per field of study, with the HEC NOC and eligible supervisors. */
+export const PG_TYPES = ["MPHIL", "PHD"] as const;
+export type PgType = (typeof PG_TYPES)[number];
+export const isPg = (type: string | null | undefined): type is PgType => type === "MPHIL" || type === "PHD";
+
+/** The programme a case or card is about: "PharmD", or "PhD Pharmacology" for a postgraduate field. */
+export function programmeName(type: string, field?: string | null) {
+  const label = PROGRAM_LABELS[type] ?? type;
+  return field ? `${label} ${field}` : label;
+}
+
+/** Fields of study for postgraduate programmes (RFP 4.1.10). The `pg.rules` rule holds the list PCP uses. */
+export const PG_FIELDS = [
+  "Pharmaceutics",
+  "Pharmaceutical Chemistry",
+  "Pharmacognosy",
+  "Pharmacology",
+  "Pharmacy Practice/Clinical Pharmacy",
+  "Pharmaceutical Sciences",
+  "Pharmacy",
+];
+
+/** The subject linked supervisors are recorded under on a postgraduate case. */
+export const SUPERVISOR_SUBJECT = "Supervisor";
+
+/** Case reference prefixes: postgraduate cases have their own series, so the undergraduate numbering is unchanged. */
+export function refPrefix(kind: string, programType: string) {
+  if (isPg(programType)) return kind === "RENEWAL" ? "PGR" : "PGA";
+  return kind === "RENEWAL" ? "RNW" : kind === "ACCREDITATION" ? "ACC" : "NOC";
+}
 
 /** Self-assessment criteria for accreditation and renewal (guide section 5). */
 export const SELF_ASSESSMENT_CRITERIA = [
@@ -221,3 +260,37 @@ export const TECHNICAL_REVIEW_CRITERIA = [
   "Library and learning resources are adequate",
   "Requested intake fits classrooms, labs and faculty",
 ];
+
+/** Technical review of a postgraduate case: the PG proforma against PCP's postgraduate standards. */
+export const PG_TECHNICAL_REVIEW_CRITERIA = [
+  "HEC NOC for the PG programme is genuine and current",
+  "Scheme of studies: coursework credit hours and duration",
+  "Thesis and research requirement",
+  "Research laboratories and equipment",
+  "Library, journals and HEC Digital Library access",
+  "Requested intake fits the eligible supervisors",
+];
+
+/** The on-site checklist (guide section 4) for PharmD and Technician programmes. */
+export const INSPECTION_CRITERIA = [
+  "Faculty: qualified, full-time, as per submitted list",
+  "Laboratories: equipment, chemicals and safety",
+  "Library: books, journals and digital access",
+  "Classrooms and building",
+  "Student records and attendance",
+  "Hospital / pharmacy practice linkage",
+  "Governance and finances",
+];
+
+/** The on-site checklist for MS/MPhil and PhD programmes. */
+export const PG_INSPECTION_CRITERIA = [
+  "Supervisors: in post, qualified and within the student limit",
+  "Research laboratories: equipment, consumables and safety",
+  "Library: journals and HEC Digital Library access",
+  "Coursework: timetable, teachers and assessment records",
+  "Research governance: ethics and biosafety committees",
+  "Thesis records: synopsis approvals and progress reports",
+  "Governance and finances",
+];
+
+export const inspectionCriteriaFor = (programType: string) => (isPg(programType) ? PG_INSPECTION_CRITERIA : INSPECTION_CRITERIA);

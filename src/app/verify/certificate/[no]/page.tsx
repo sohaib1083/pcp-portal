@@ -14,7 +14,25 @@ export default async function VerifyCertificatePage({ params }: { params: Promis
     <CertificateVerify
       lang={await getLang()}
       no={no}
-      found={app && inst ? { kind: app.kind, term: hist ? `${hist.validFrom}–${hist.validUntil}` : null, institution: inst.name, code: inst.code, city: inst.city, programType: app.programType, intake: Number(app.data?.proposedIntake ?? 0), issuedAt: app.issuedAt?.toISOString() ?? null, validUntil: app.validUntil, sha256: doc?.sha256 ?? null } : null}
+      found={
+        app && inst
+          ? {
+              kind: app.kind,
+              term: hist ? `${hist.validFrom}–${hist.validUntil}` : null,
+              institution: inst.name,
+              code: inst.code,
+              city: inst.city,
+              programType: app.programType,
+              // Postgraduate: the field of study and the HEC NOC the accreditation rests on.
+              field: app.field || null,
+              hecNoc: app.field ? (app.data?.hecNocNumber ?? null) : null,
+              intake: Number(app.data?.proposedIntake ?? 0),
+              issuedAt: app.issuedAt?.toISOString() ?? null,
+              validUntil: app.validUntil,
+              sha256: doc?.sha256 ?? null,
+            }
+          : null
+      }
     />
   );
 }

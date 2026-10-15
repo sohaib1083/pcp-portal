@@ -165,7 +165,10 @@ export default function VerificationView({
   decided,
   nadraOpen = [],
   nadraResolved = [],
+  extraTabs = [],
 }: {
+  /** More queues on this screen (teachers' and students' own requests), shown before "Decided". */
+  extraTabs?: { key: string; text: string; count: number; children: React.ReactNode }[];
   nadraOpen?: NadraItem[];
   nadraResolved?: NadraItem[];
   flags: { id: number; score: number; reason: string; record: Person; match: Person }[];
@@ -180,7 +183,7 @@ export default function VerificationView({
   const router = useRouter();
   const [busy, start] = useBusy();
   const { withOtp, otpModal } = useOtp();
-  const [active, setActive] = useState(tab && ["duplicates", "links", "changes", "decided", "nadra"].includes(tab) ? tab : "duplicates");
+  const [active, setActive] = useState(tab && ["duplicates", "links", "changes", "decided", "nadra", ...extraTabs.map((t) => t.key)].includes(tab) ? tab : "duplicates");
   const [resolve, setResolve] = useState<{ item: NadraItem; outcome: "NAME_UPDATED" | "KEPT" } | null>(null);
   const [resolveNote, setResolveNote] = useState("");
   const confirmResolve = () =>
@@ -506,6 +509,7 @@ export default function VerificationView({
               </>
             ),
           },
+          ...extraTabs.map((t) => ({ key: t.key, label: label(t.text, t.count), children: t.children })),
           {
             key: "decided",
             label: "Decided",

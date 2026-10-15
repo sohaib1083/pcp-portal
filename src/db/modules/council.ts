@@ -3,7 +3,8 @@ import { boolean, date, integer, pgTable, serial, text, timestamp } from "drizzl
 
 export const councilMeetings = pgTable("council_meetings", {
   id: serial("id").primaryKey(),
-  ref: text("ref").notNull().unique(), // CM-2026-07
+  ref: text("ref").notNull().unique(), // CM-2026-07 (council); committees use their own prefix, e.g. ACM-2026-01
+  committee: text("committee").notNull().default("Council"), // Council | a committee from the ref.committees rule
   title: text("title").notNull(),
   meetingDate: date("meeting_date").notNull(),
   status: text("status").notNull().default("PLANNED"), // PLANNED | IN_SESSION | CLOSED
@@ -14,12 +15,22 @@ export const councilMeetings = pgTable("council_meetings", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** An agenda item: a case (or appeal) that is ready, with its recommendation and draft decision. */
+/**
+ * An agenda item: a case (or appeal) that is ready, with its recommendation and draft decision.
+ * Committee agendas (and council discussion items) can also carry a court case, a letter or another matter;
+ * those get a recorded recommendation or outcome (`resolution`), never a decision.
+ */
 export const councilItems = pgTable("council_items", {
   id: serial("id").primaryKey(),
   meetingId: integer("meeting_id").notNull(),
   applicationId: integer("application_id"),
   appealId: integer("appeal_id"),
+  courtCaseId: integer("court_case_id"),
+  letterId: integer("letter_id"), // correspondence register entry
+  subject: text("subject"), // another matter (free text), or a short title for the item
+  resolution: text("resolution"), // committee recommendation, or the council's recorded outcome on a discussion item
+  resolvedBy: text("resolved_by"),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   position: integer("position").notNull(),
   recommendation: text("recommendation"),
   draftDecision: text("draft_decision"), // APPROVED | DEFERRED | REJECTED | UPHELD | DISMISSED

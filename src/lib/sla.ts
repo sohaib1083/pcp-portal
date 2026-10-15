@@ -64,7 +64,7 @@ async function owners(exec: Executor, app: typeof schema.applications.$inferSele
       const review = await exec.query.technicalReviews.findFirst({ where: eq(schema.technicalReviews.applicationId, app.id) });
       return review
         ? { assignee: "role:pcp_coordinator", supervisor: "role:pcp_secretary", who: "the inspection coordinator" }
-        : { assignee: officer, supervisor: "role:pcp_secretary", who: "the assigned officer" };
+        : { assignee: "role:pcp_technical", supervisor: "role:pcp_secretary", who: "the technical officers" };
     }
     case "INSPECTION_SCHEDULED": {
       const insp = await exec.query.inspections.findFirst({ where: and(eq(schema.inspections.applicationId, app.id), eq(schema.inspections.status, "SCHEDULED")), orderBy: desc(schema.inspections.id) });

@@ -69,14 +69,15 @@ function KpiTile({ k, onDrill }: { k: ReportKpi; onDrill: Parameters<typeof Repo
 }
 const FILTER_NAMES: Record<FilterKey, string> = { province: "Province", sector: "Sector", programme: "Programme", year: "Year" };
 
-function ReportPanel({ report, filters, onDrill }: { report: Report; filters: ReportFilters; onDrill: Parameters<typeof ReportTable>[0]["onDrill"] }) {
+/** One report with its chart, table, notes and exports. `exportBase` lets the province pages use their own, scoped export route. */
+export function ReportPanel({ report, filters, onDrill, exportBase = "/api/reports" }: { report: Report; filters: ReportFilters; onDrill: Parameters<typeof ReportTable>[0]["onDrill"]; exportBase?: string }) {
   const ignored = (Object.keys(FILTER_NAMES) as FilterKey[]).filter((k) => filters[k] !== undefined && !report.filters.includes(k));
   const query = filtersToQuery({ province: filters.province, sector: filters.sector, programme: filters.programme, year: filters.year });
   return (
     <Card
       data-testid={`report-${report.id}`}
       title={report.title}
-      extra={<ExportButtons base={`/api/reports/${report.id}`} query={query} testId={`export-${report.id}`} />}
+      extra={<ExportButtons base={`${exportBase}/${report.id}`} query={query} testId={`export-${report.id}`} />}
       styles={{ body: { padding: 0 } }}
     >
       <div style={{ padding: "14px 20px 4px" }}>

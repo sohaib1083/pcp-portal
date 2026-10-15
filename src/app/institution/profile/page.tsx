@@ -39,6 +39,7 @@ export default async function InstitutionProfilePage() {
       campuses={campuses.map((c) => ({ id: c.id, name: c.name, city: c.city, province: c.province, address: c.address, isMain: c.isMain, cases: apps.filter((a) => a.campusId === c.id).length }))}
       programs={programs.map((p) => ({
         type: p.type,
+        field: p.field,
         nocStatus: p.nocStatus,
         nocNumber: p.nocNumber,
         approvedIntake: p.approvedIntake,

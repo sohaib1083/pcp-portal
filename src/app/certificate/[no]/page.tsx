@@ -4,7 +4,7 @@ import CertificatePrint from "@/components/CertificatePrint";
 import { db, schema } from "@/db";
 import { certificateQrDataUrl, verifyUrl } from "@/lib/certificate";
 import { requireUser } from "@/lib/session";
-import { PROGRAM_LABELS } from "@/lib/workflow";
+import { programmeName } from "@/lib/workflow";
 
 export default async function CertificatePage({ params }: { params: Promise<{ no: string }> }) {
   const { no } = await params;
@@ -28,7 +28,8 @@ export default async function CertificatePage({ params }: { params: Promise<{ no
         code: inst.code,
         city: inst.city,
         province: inst.province,
-        program: PROGRAM_LABELS[app.programType],
+        program: programmeName(app.programType, app.field),
+        hecNoc: app.field ? (app.data?.hecNocNumber ?? null) : null,
         intake: Number(app.data?.proposedIntake ?? 0),
         issuedAt: app.issuedAt?.toISOString() ?? null,
         validUntil: app.validUntil,

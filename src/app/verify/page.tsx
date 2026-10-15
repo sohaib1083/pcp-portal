@@ -8,7 +8,7 @@ import { councilOfRegNo, normalizeRegNo } from "@/lib/register";
 export default async function VerifyPage({ searchParams }: { searchParams: Promise<{ q?: string; reg?: string; tab?: string }> }) {
   const { q, reg, tab } = await searchParams;
   const lang = await getLang();
-  let results: { code: string; name: string; city: string; province: string; status: string; programs: { type: string; noc: string; nocNumber: string | null; acc: string; until: string | null }[] }[] = [];
+  let results: { code: string; name: string; city: string; province: string; status: string; programs: { type: string; field: string; noc: string; nocNumber: string | null; acc: string; until: string | null }[] }[] = [];
   if (q && q.trim().length >= 2) {
     const term = `%${q.trim()}%`;
     const insts = await db.select().from(schema.institutions).where(or(ilike(schema.institutions.name, term), ilike(schema.institutions.code, term), ilike(schema.institutions.shortCode, term))).limit(10);
@@ -21,7 +21,8 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
       status: i.status,
       programs: programs
         .filter((p) => p.institutionId === i.id)
-        .map((p) => ({ type: p.type, noc: p.nocStatus, nocNumber: p.nocStatus === "APPROVED" ? p.nocNumber : null, acc: p.accreditationStatus, until: p.accreditationValidUntil })),
+        // A postgraduate programme shows the HEC NOC it was accredited on (PCP accredits; the HEC issues the NOC).
+        .map((p) => ({ type: p.type, field: p.field, noc: p.nocStatus, nocNumber: p.field ? (p.accreditationStatus === "VALID" ? p.nocNumber : null) : p.nocStatus === "APPROVED" ? p.nocNumber : null, acc: p.accreditationStatus, until: p.accreditationValidUntil })),
     }));
   }
 

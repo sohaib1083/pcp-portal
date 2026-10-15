@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import AppShell, { type NavItem } from "@/components/AppShell";
 import { db, schema } from "@/db";
+import { requireOfficerCode } from "@/lib/officer-code";
 import { can, ROLE_LABELS } from "@/lib/roles";
 import { requireUser } from "@/lib/session";
 import { iso } from "@/lib/util";
@@ -8,6 +9,7 @@ import { TRANSITIONS } from "@/lib/workflow";
 
 export default async function PcpLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser("pcp");
+  await requireOfficerCode(user.roles, "/pcp"); // two-step sign-in for officers (RFP 4.1.3, 4.1.16)
   const r = user.roles;
 
   // Badges: how much is waiting for this user's role
@@ -19,7 +21,16 @@ export default async function PcpLayout({ children }: { children: React.ReactNod
     .select({ myInspections: sql<number>`count(*)::int` })
     .from(schema.inspections)
     .where(and(eq(schema.inspections.inspector, user.username), eq(schema.inspections.status, "SCHEDULED")));
-  const [{ flags }] = await db.select({ flags: sql<number>`count(*)::int` }).from(schema.duplicateFlags).where(eq(schema.duplicateFlags.status, "OPEN"));
+  // Everything waiting on Data verification: duplicates, change and teacher requests, NADRA differences, student requests with PCP.
+  const cnt = sql<number>`count(*)::int`;
+  const [[d], [c], [f], [i], [st]] = await Promise.all([
+    db.select({ n: cnt }).from(schema.duplicateFlags).where(eq(schema.duplicateFlags.status, "OPEN")),
+    db.select({ n: cnt }).from(schema.facultyChangeRequests).where(eq(schema.facultyChangeRequests.status, "PENDING")),
+    db.select({ n: cnt }).from(schema.facultyRequests).where(eq(schema.facultyRequests.status, "PENDING")),
+    db.select({ n: cnt }).from(schema.identityChecks).where(eq(schema.identityChecks.reviewStatus, "OPEN")),
+    db.select({ n: cnt }).from(schema.studentRequests).where(eq(schema.studentRequests.status, "WITH_PCP")),
+  ]);
+  const flags = d.n + c.n + f.n + i.n + st.n;
 
   const nav: NavItem[] = [];
   if (can(r, "pcp.dashboard")) nav.push({ href: "/pcp", label: "Dashboard", icon: "dashboard", group: "Overview" });

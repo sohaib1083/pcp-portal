@@ -237,10 +237,23 @@ try {
     await page.locator(".ph-update-form input[type=file]").setInputFiles(evFile);
     await page.getByTestId("evidence-name").waitFor();
     await page.getByRole("button", { name: "Send for verification" }).click();
-    ok(/Sent to PCP for verification/.test(await toast(page, /Sent to PCP/)), "update sent");
+    // Validation routing (RFP 4.1.2): the Sindh Pharmacy Council has an officer on the portal, so it validates first.
+    ok(/Sent to the Sindh Pharmacy Council to validate/.test(await toast(page, /Sent to the/)), "update sent to the council first");
     await page.waitForFunction((pl) => document.querySelector("[data-testid=pending-update]")?.textContent?.includes(pl), place);
-    ok(true, "shows as waiting for PCP");
+    ok(true, "shows as waiting for the council");
     await shot(page, "sana-pending");
+  }
+  {
+    const council = await enterAs("sindh.council", "/province/pharmacists");
+    const page = council.page;
+    current = page;
+    await page.goto(`${BASE}/province/pharmacists?tab=validation`);
+    const card = page.getByTestId("validate-SPC-A-2019-00412").filter({ hasText: place });
+    log("sindh.council validates it for PCP");
+    await card.getByRole("button", { name: "Validate and send to PCP" }).click();
+    await confirmOtp(page);
+    ok(/Validated/.test(await toast(page, /Validated/)), "validated by the Sindh Pharmacy Council with a one-time code");
+    await council.ctx.close();
   }
   const officer = await enterAs("pcp.registration", "/pcp/pharmacists");
   {

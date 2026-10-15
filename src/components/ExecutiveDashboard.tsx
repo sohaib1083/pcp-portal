@@ -11,6 +11,7 @@ import {
   CloseCircleFilled,
   ExperimentOutlined,
   FieldTimeOutlined,
+  ReadOutlined,
   FileSearchOutlined,
   MinusCircleFilled,
   SafetyCertificateOutlined,
@@ -19,7 +20,7 @@ import {
   UserSwitchOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
-import { PageTitle, StatCard, StatusTag, fmtDate, kindLabel, programLabel } from "./common";
+import { PageTitle, StatCard, StatusTag, fmtDate, kindLabel, programLabel, programmeLabel } from "./common";
 import { daysUntil } from "@/lib/format";
 import { slaClock } from "@/lib/sla-view";
 import { STAGE_LABELS } from "@/lib/workflow";
@@ -90,7 +91,7 @@ const STAGES: { key: string; label: string; owner: string; statuses: string[]; c
   { key: "sub", label: "Submitted", owner: "Officer", statuses: ["SUBMITTED"], c: "#1d5fb0", href: "/pcp/applications?status=SUBMITTED" },
   { key: "scr", label: "Scrutiny", owner: "Officer", statuses: ["UNDER_SCRUTINY"], c: "#1d5fb0", href: "/pcp/applications?status=UNDER_SCRUTINY" },
   { key: "def", label: "Deficiency", owner: "Institution", statuses: ["DEFICIENCY_RAISED", "RESPONDED"], c: "#a15c00", href: "/pcp/applications?status=DEFICIENCY_RAISED,RESPONDED" },
-  { key: "tec", label: "Technical review", owner: "Officer", statuses: ["TECHNICAL_REVIEW"], c: "#1d5fb0", href: "/pcp/applications?status=TECHNICAL_REVIEW" },
+  { key: "tec", label: "Technical review", owner: "Technical officer", statuses: ["TECHNICAL_REVIEW"], c: "#1d5fb0", href: "/pcp/applications?status=TECHNICAL_REVIEW" },
   { key: "ins", label: "Inspection", owner: "Inspection team", statuses: ["INSPECTION_SCHEDULED", "INSPECTION_SUBMITTED"], c: "#5b3cc4", href: "/pcp/applications?status=INSPECTION_SCHEDULED,INSPECTION_SUBMITTED" },
   { key: "cou", label: "Council", owner: "Secretary", statuses: ["COUNCIL_REVIEW", "APPROVED", "DEFERRED"], c: "#0b6e6e", href: "/pcp/applications?status=COUNCIL_REVIEW,APPROVED,DEFERRED" },
   { key: "iss", label: "Certificate issued", owner: "Closed", statuses: ["NOC_ISSUED"], c: "#0d7a3d", href: "/pcp/applications?status=NOC_ISSUED" },
@@ -119,8 +120,8 @@ function Pipeline({ data }: { data: KV }) {
   );
 }
 
-export type WorkItem = { ref: string; kind: string; programType: string; status: string; inst: string; dueAt: string | null; holder: string; escalated: boolean };
-type Decided = { ref: string; kind: string; programType: string; status: string; inst: string; decision: string; at: string; deferUntil: string | null };
+export type WorkItem = { ref: string; kind: string; programType: string; field?: string; status: string; inst: string; dueAt: string | null; holder: string; escalated: boolean };
+type Decided = { ref: string; kind: string; programType: string; field?: string; status: string; inst: string; decision: string; at: string; deferUntil: string | null };
 
 function WorkRow({ w, showHolder }: { w: WorkItem; showHolder?: boolean }) {
   const c = slaClock(w.status, w.dueAt);
@@ -130,7 +131,7 @@ function WorkRow({ w, showHolder }: { w: WorkItem; showHolder?: boolean }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <span className="mono" style={{ fontWeight: 600, fontSize: 13, color: "var(--ink)" }}>{w.ref}</span>
-            <span className="faint" style={{ fontSize: 12 }}>{w.inst} · {kindLabel(w.kind)} · {programLabel(w.programType)}</span>
+            <span className="faint" style={{ fontSize: 12 }}>{w.inst} · {kindLabel(w.kind)} · {programmeLabel(w.programType, w.field)}</span>
           </div>
           <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
             {STAGE_LABELS[w.status] ?? w.status}
@@ -183,7 +184,7 @@ function MyWork({ work }: { work: { due: WorkItem[]; dueTotal: number; blocked: 
                   <div className="pcp-action-row" style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 10px", borderRadius: 10 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <span className="mono" style={{ fontWeight: 600, fontSize: 13, color: "var(--ink)" }}>{x.ref}</span>{" "}
-                      <span className="faint" style={{ fontSize: 12 }}>{x.inst} · {kindLabel(x.kind)} · {programLabel(x.programType)}</span>
+                      <span className="faint" style={{ fontSize: 12 }}>{x.inst} · {kindLabel(x.kind)} · {programmeLabel(x.programType, x.field)}</span>
                       <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{fmtDate(x.at)}{x.decision === "DEFERRED" && x.deferUntil ? ` · returns ${fmtDate(x.deferUntil)}` : ""}</div>
                     </div>
                     <StatusTag status={x.status === "NOC_ISSUED" ? "NOC_ISSUED" : x.decision} />
@@ -211,9 +212,11 @@ export default function ExecutiveDashboard(p: {
   facultyQual: KV;
   overIntake: { short_code: string; name: string; program_type: string; enrollment_year: number; enrolled: number; approved_intake: number }[];
   pipeline: KV;
-  renewals: { name: string; code: string; type: string; until: string }[];
+  renewals: { name: string; code: string; type: string; field?: string; until: string }[];
   notifications: { id: number; title: string; body: string; link: string | null; createdAt: string }[];
   adminTasks?: { text: string; link: string; due: string }[];
+  /** More of the work list from other modules (letters marked to you, action points, hearings). */
+  moreWork?: React.ReactNode;
 }) {
   const k = p.kpis;
   const years = [...new Set(p.enrol.map((e) => e.year))];
@@ -226,6 +229,7 @@ export default function ExecutiveDashboard(p: {
     { href: "/pcp/institutions", label: "Institutions", value: k.institutions, icon: <BankOutlined />, hint: `${pub} public · ${priv} private` },
     { href: "/pcp/institutions?programme=PHARMD", label: "Active PharmD programmes", value: k.pharmd, icon: <SolutionOutlined />, tone: "gold", hint: "NOC approved" },
     { href: "/pcp/institutions?programme=TECH", label: "Technician programmes", value: k.tech, icon: <ExperimentOutlined />, tone: "gold", hint: "NOC approved" },
+    { href: "/pcp/institutions?programme=PG", label: "Postgraduate programmes", value: k.pg ?? 0, icon: <ReadOutlined />, tone: "gold", hint: `${k.mphil ?? 0} MS/MPhil · ${k.phd ?? 0} PhD accredited` },
     { href: "/pcp/pharmacists", label: "Registered pharmacists", value: k.pharmacists ?? 0, icon: <UserSwitchOutlined />, tone: "neutral", hint: `${k.pharmacistsActive ?? 0} active · index of provincial registers` },
     { href: "/pcp/applications?kind=NOC&state=open", label: "Pending NOCs", value: k.pendingNoc, icon: <FileSearchOutlined />, tone: "info", hint: "Submitted, not closed" },
     { href: "/pcp/applications?kind=ACCREDITATION,RENEWAL&state=open", label: "Pending accreditations", value: k.pendingAcc, icon: <SafetyCertificateOutlined />, tone: "info", hint: "Accreditation and renewal" },
@@ -255,6 +259,7 @@ export default function ExecutiveDashboard(p: {
       ) : null}
 
       <MyWork work={p.work} />
+      {p.moreWork}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 14 }} data-testid="kpi-tiles">
         {tiles.map((t) => (
@@ -363,11 +368,11 @@ export default function ExecutiveDashboard(p: {
               <Table
                 size="small"
                 pagination={false}
-                rowKey={(r) => `${r.code}-${r.type}`}
+                rowKey={(r) => `${r.code}-${r.type}-${r.field ?? ""}`}
                 dataSource={p.renewals}
                 columns={[
                   { title: "Institution", dataIndex: "name", render: (v, r) => <span>{v}<div className="faint mono">{r.code}</div></span> },
-                  { title: "Program", dataIndex: "type", render: programLabel },
+                  { title: "Program", dataIndex: "type", render: (v: string, r) => programmeLabel(v, r.field) },
                   { title: "Expires", dataIndex: "until", render: (v) => fmtDate(v) },
                   {
                     title: "Days left",

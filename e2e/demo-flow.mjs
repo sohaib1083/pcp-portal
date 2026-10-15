@@ -39,6 +39,14 @@ async function login(username) {
   await page.click("#kc-login");
   await page.waitForURL((u) => !u.toString().includes("/auth/realms/"), { timeout: T });
   await page.waitForLoadState("networkidle");
+  // Two-step sign-in for officers (RFP 4.1.3): PCP and provincial officers enter a one-time code after the
+  // password. The demo fills the code in; Continue opens the workspace.
+  if (page.url().includes("/login/code")) {
+    await page.waitForFunction(() => document.querySelector("#signin-code")?.value?.length === 6, null, { timeout: T });
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: T });
+    await page.waitForLoadState("networkidle");
+  }
   return { ctx, page };
 }
 

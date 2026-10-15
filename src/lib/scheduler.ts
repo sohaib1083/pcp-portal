@@ -1,6 +1,7 @@
 // Daily jobs: renewal alerts and service-level reminders/escalations. Started once per server process from
 // src/instrumentation.ts, and also run (at most every few minutes) when the PCP dashboard loads.
 // Both jobs are idempotent, so running them more often than daily never sends a message twice.
+import { runGovernanceReminders } from "./governance";
 import { runRenewalAlerts } from "./renewals";
 import { runRetention } from "./retention";
 import { runSlaChecks } from "./sla";
@@ -11,6 +12,7 @@ const g = globalThis as unknown as { __pcpScheduler?: ReturnType<typeof setInter
 export async function runDailyJobs() {
   const renewals = await runRenewalAlerts();
   const sla = await runSlaChecks();
+  await runGovernanceReminders(); // court hearings (7 and 1 days before), committee action points, letters past their action date
   // The draft clean-up audits every run, so it runs once a day rather than on every dashboard load.
   let retention = null;
   if (Date.now() - (g.__pcpRetentionAt ?? 0) >= DAY) {

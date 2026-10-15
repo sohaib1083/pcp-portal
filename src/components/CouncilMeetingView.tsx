@@ -14,16 +14,20 @@ import {
   LockOutlined,
   PauseOutlined,
   PlayCircleOutlined,
+  PlusOutlined,
   SafetyOutlined,
+  TeamOutlined,
   UnorderedListOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { buildAgenda, closeMeeting, recordItemDecision, removeAgendaItem, setDraftDecision, startSession } from "@/app/actions/council";
 import type { ActionResult } from "@/app/actions/faculty";
 import type { AgendaItem, MeetingDetail } from "@/lib/council-data";
+import type { AgendaOptions, meetingActions } from "@/lib/governance-data";
 import { PageTitle, StatusTag, fmtDate } from "./common";
 import { DECISION_TEXT, DecisionPill, DocLink, ModuleStatus, Quote } from "./CouncilParts";
 import { FillDemo } from "./demo-helpers";
+import { ActionPointsCard, AddItemModal, GeneralItemCard } from "./CommitteeParts";
 import { useOtp } from "./OtpConfirm";
 import ScreenGuide from "./ScreenGuide";
 
@@ -31,7 +35,7 @@ const CASE_DECISIONS = ["APPROVED", "DEFERRED", "REJECTED"] as const;
 const APPEAL_DECISIONS = ["UPHELD", "DISMISSED"] as const;
 const ICON: Record<string, React.ReactNode> = { APPROVED: <CheckOutlined />, DEFERRED: <PauseOutlined />, REJECTED: <CloseOutlined />, UPHELD: <CheckOutlined />, DISMISSED: <CloseOutlined /> };
 
-const itemRef = (it: AgendaItem) => (it.kind === "case" ? it.case!.ref : it.appeal!.ref);
+const itemRef = (it: AgendaItem) => it.ref;
 
 function DecisionModal({ item, onClose }: { item: AgendaItem; onClose: () => void }) {
   const { message } = App.useApp();
@@ -150,6 +154,17 @@ function InspectionBlock({ i }: { i: NonNullable<NonNullable<AgendaItem["case"]>
           {i.inspector} · {fmtDate(i.date)}
         </span>
       </div>
+      {i.score ? (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 13 }} data-testid="agenda-score">
+          <span className="muted">Score</span>
+          <b className="tnum">
+            {i.score.total} / {i.score.max} ({i.score.percent}%)
+          </b>
+          <Tag color={i.score.passed ? "green" : "red"} style={{ margin: 0 }}>
+            {i.score.passed ? `Pass · mark ${i.score.passPercent}%` : `Below the pass mark of ${i.score.passPercent}%`}
+          </Tag>
+        </div>
+      ) : null}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         <Tag color="green" style={{ margin: 0 }}>{i.compliant} compliant</Tag>
         {i.partial ? <Tag color="gold" style={{ margin: 0 }}>{i.partial} partial</Tag> : null}
@@ -308,14 +323,36 @@ function ItemCard({ it, status, canManage, canDecide, onDecide, run, pending }: 
   );
 }
 
-export default function CouncilMeetingView({ d, canManage, canDecide }: { d: MeetingDetail; canManage: boolean; canDecide: boolean }) {
+type Committee = { name: string; chair: string | null; members: string[]; remit: string } | null;
+type Actions = Awaited<ReturnType<typeof meetingActions>>;
+
+export default function CouncilMeetingView({
+  d,
+  canManage,
+  canDecide,
+  username,
+  committee,
+  actions,
+  options,
+}: {
+  d: MeetingDetail;
+  canManage: boolean;
+  canDecide: boolean;
+  username: string;
+  committee: Committee;
+  actions: Actions;
+  options: AgendaOptions | null;
+}) {
   const { message } = App.useApp();
   const router = useRouter();
   const [pending, start] = useTransition();
   const [deciding, setDeciding] = useState<AgendaItem | null>(null);
+  const [adding, setAdding] = useState(false);
   const m = d.meeting;
-  const decided = d.items.filter((i) => i.decision).length;
+  const council = m.isCouncil;
+  const decided = d.items.filter((i) => i.decision || i.resolution).length;
   const undecided = d.items.length - decided;
+  const decisionItem = (it: AgendaItem) => council && (it.kind === "case" || it.kind === "appeal");
 
   const run = (fn: () => Promise<ActionResult>) =>
     start(async () => {
@@ -331,7 +368,7 @@ export default function CouncilMeetingView({ d, canManage, canDecide }: { d: Mee
       <PageTitle
         eyebrow={
           <Link href="/pcp/council" style={{ color: "inherit" }}>
-            Council meetings · <span className="mono">{m.ref}</span>
+            {council ? "Council meetings" : m.committee} · <span className="mono">{m.ref}</span>
           </Link>
         }
         title={m.title}
@@ -340,31 +377,43 @@ export default function CouncilMeetingView({ d, canManage, canDecide }: { d: Mee
             <span>{dayjs(m.date).format("dddd D MMMM YYYY")}</span>
             <ModuleStatus status={m.status} />
             <span>
-              {d.items.length} item{d.items.length === 1 ? "" : "s"} · {decided} decided
+              {d.items.length} item{d.items.length === 1 ? "" : "s"} · {decided} {council ? "decided" : "with a recommendation"}
             </span>
+            {actions.length ? <span>· {actions.length} action point{actions.length === 1 ? "" : "s"}</span> : null}
           </span>
         }
         extra={
           <>
             <ScreenGuide
-              title="Running a council meeting"
-              steps={[
+              title={council ? "Running a council meeting" : `Running a ${m.committee} meeting`}
+              steps={council ? [
                 "**Build agenda from ready cases** adds every case awaiting a council decision and every appeal an officer has placed for council. Each item shows the case file, the inspection report and the officer's recommendation.",
                 "Before the meeting, set a **draft decision** on each item. It is a suggestion; nothing is decided yet.",
                 "On the day, **Start session**. Then **Record decision** on each item and confirm with the one-time code. A deferral needs a reason and a return date; a rejection needs its grounds.",
                 "An upheld appeal sends the original case back to council review for a fresh decision; a dismissed appeal leaves the decision standing.",
+                "**Add agenda item** adds a court case, a letter or another matter for discussion; its outcome is recorded, not decided. **Add action point** turns a follow-up into a tracked task.",
                 "**Close meeting and file minutes** generates the minutes PDF. Undecided items are carried forward to the next agenda.",
+              ] : [
+                "**Add agenda item** adds a case, an appeal, a court case, a letter or another matter, with a background note.",
+                "On the day, **Start session**. For each item, **Record recommendation**. A committee recommends; the Council decides cases and appeals.",
+                "**Add action point** records a task with an owner and a due date. It goes on the owner's work list, with reminders before it is due and when it is overdue.",
+                "**Close meeting and file minutes** generates the minutes PDF with the recommendations and action points.",
               ]}
-              note={canManage ? undefined : "Only the Secretary changes the agenda and records decisions. You can read everything here."}
+              note={canManage ? undefined : "Only the Secretary changes the agenda and records outcomes. You can read everything here and update action points you own."}
             />
             {m.minutesDocumentId ? (
               <a href={`/api/documents/${m.minutesDocumentId}`} target="_blank" rel="noreferrer" id="minutes-link">
                 <Button icon={<DownloadOutlined />}>Download minutes (PDF)</Button>
               </a>
             ) : null}
-            {canManage && m.status !== "CLOSED" ? (
+            {canManage && council && m.status !== "CLOSED" ? (
               <Button icon={<UnorderedListOutlined />} loading={pending} onClick={() => run(() => buildAgenda(m.ref))}>
                 Build agenda from ready cases
+              </Button>
+            ) : null}
+            {canManage && options && m.status !== "CLOSED" ? (
+              <Button icon={<PlusOutlined />} onClick={() => setAdding(true)}>
+                Add agenda item
               </Button>
             ) : null}
             {canManage && m.status === "PLANNED" ? (
@@ -396,15 +445,29 @@ export default function CouncilMeetingView({ d, canManage, canDecide }: { d: Mee
           current={step}
           status={step === 2 ? "finish" : "process"}
           items={[
-            { title: "Planned", content: "Agenda and draft decisions" },
-            { title: "In session", content: m.startedAt ? `Started ${fmtDate(m.startedAt, true)}` : "Decisions recorded with a one-time code" },
+            { title: "Planned", content: council ? "Agenda and draft decisions" : "Agenda and background notes" },
+            { title: "In session", content: m.startedAt ? `Started ${fmtDate(m.startedAt, true)}` : council ? "Decisions recorded with a one-time code" : "Recommendations and action points" },
             { title: "Closed", content: m.closedAt ? `Closed ${fmtDate(m.closedAt, true)}, minutes filed` : "Minutes filed as a PDF" },
           ]}
         />
       </Card>
 
-      {m.status === "IN_SESSION" && canDecide && undecided ? (
+      {committee && !council ? (
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "10px 14px", marginBottom: 16, borderRadius: 12, border: "1px solid #ddd3fb", background: "#f8f6fe", fontSize: 13 }} data-testid="committee-members">
+          <TeamOutlined style={{ color: "#5b3cc4", fontSize: 16 }} />
+          <b>{committee.name}</b>
+          <span className="muted">{committee.remit}</span>
+          <span style={{ flexBasis: "100%", height: 0 }} />
+          <span>
+            {committee.chair ? <>Chair <b style={{ fontWeight: 600 }}>{committee.chair}</b> · </> : null}Members: {committee.members.join(", ")}
+          </span>
+        </div>
+      ) : null}
+      {m.status === "IN_SESSION" && canDecide && undecided && council ? (
         <Alert type="info" showIcon style={{ marginBottom: 16 }} title={`In session: record a decision for each of the ${undecided} remaining item${undecided === 1 ? "" : "s"}. Each decision needs a one-time code.`} />
+      ) : null}
+      {m.status === "IN_SESSION" && canManage && undecided && !council ? (
+        <Alert type="info" showIcon style={{ marginBottom: 16 }} title={`In session: record the committee's recommendation on each of the ${undecided} remaining item${undecided === 1 ? "" : "s"}, and add the action points agreed.`} />
       ) : null}
       {m.status === "CLOSED" && m.minutesDocumentId ? (
         <Alert
@@ -420,19 +483,32 @@ export default function CouncilMeetingView({ d, canManage, canDecide }: { d: Mee
       ) : null}
 
       {d.items.length ? (
-        d.items.map((it) => <ItemCard key={it.id} it={it} status={m.status} canManage={canManage} canDecide={canDecide} onDecide={() => setDeciding(it)} run={run} pending={pending} />)
+        d.items.map((it) =>
+          decisionItem(it) ? (
+            <ItemCard key={it.id} it={it} status={m.status} canManage={canManage} canDecide={canDecide} onDecide={() => setDeciding(it)} run={run} pending={pending} />
+          ) : (
+            <GeneralItemCard key={it.id} it={it} status={m.status} council={council} canManage={canManage} run={run} pending={pending} />
+          ),
+        )
       ) : (
         <Card>
           <Empty
             image={<FileSearchOutlined style={{ fontSize: 42, color: "var(--faint)" }} />}
             description={
-              canManage && m.status !== "CLOSED" ? "The agenda is empty. Click Build agenda from ready cases to add every case and appeal ready for council." : "No items on this agenda."
+              canManage && m.status !== "CLOSED"
+                ? council
+                  ? "The agenda is empty. Click Build agenda from ready cases to add every case and appeal ready for council."
+                  : "The agenda is empty. Click Add agenda item to add a case, appeal, court case, letter or other matter."
+                : "No items on this agenda."
             }
           />
         </Card>
       )}
 
+      <ActionPointsCard meetingRef={m.ref} status={m.status} actions={actions} items={d.items.map((i) => ({ id: i.id, position: i.position, ref: i.kind === "other" ? null : i.ref }))} staff={options?.staff ?? []} canManage={canManage} username={username} run={run} />
+
       {deciding ? <DecisionModal item={deciding} onClose={() => setDeciding(null)} /> : null}
+      {adding && options ? <AddItemModal meetingRef={m.ref} council={council} options={options} onClose={() => setAdding(false)} /> : null}
     </>
   );
 }

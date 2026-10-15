@@ -2,12 +2,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Alert, App, Button, Card, Col, Input, Row, Segmented, Table, Tag, Upload } from "antd";
+import { Alert, App, Button, Card, Col, Input, InputNumber, Row, Segmented, Table, Tag, Upload } from "antd";
 import { CameraOutlined, CloudSyncOutlined, PaperClipOutlined, SendOutlined, TeamOutlined, WifiOutlined } from "@ant-design/icons";
 import { submitInspection } from "@/app/actions/pcp";
 import type { ChecklistItem } from "@/db/schema";
+import { bandFor, defaultScore, scoreTotals, weightFor, type ScoringRule } from "@/lib/inspection-scoring";
 import { clearDraft, loadDraft, saveDraft } from "@/lib/offline-store";
-import { PageTitle, Pill, StatusDot, fmtDate, programLabel } from "./common";
+import { ScoreBadge, checklistColumns } from "./AppParts";
+import { PageTitle, StatusDot, fmtDate, programmeLabel } from "./common";
 import { FillDemo } from "./demo-helpers";
 
 type Result = "COMPLIANT" | "PARTIAL" | "NON_COMPLIANT" | "NA";
@@ -15,7 +17,9 @@ const RESULT_COLOR: Record<Result, string> = { COMPLIANT: "#12a150", PARTIAL: "#
 
 /** A photo or document on one line. `file` until it is sent; `id` (the filed document) after. */
 type Evidence = { name: string; type: string; file?: Blob; id?: number };
-type Line = { criterion: string; result: Result; remarks: string; evidence: Evidence[] };
+/** `score` is the score entry (RFP 4.1.2): within the band of the result, null for not applicable. */
+type Line = { criterion: string; result: Result; score: number | null; remarks: string; evidence: Evidence[] };
+type ReportScore = { total: number; max: number; percent: number; passPercent: number; passed: boolean } | null;
 type Draft = { criteria: string[]; items: Line[]; summary: string; savedAt: string; queued: boolean };
 
 /** The server answered and said no: show the reason, do not keep retrying. */
@@ -29,14 +33,19 @@ export default function InspectionForm(props: {
   criteria: string[];
   canSubmit: boolean;
   team: { name: string; province: string; lead: boolean }[];
-  report: { checklist: ChecklistItem[]; summary: string | null } | null;
-  context: { ref: string; program: string; inst: string; city: string; date: string; scope: string | null; declaredIntake: number; declaredLabs: number; declaredBooks: number; facultyOnRecord: number };
+  report: { checklist: ChecklistItem[]; summary: string | null; score: ReportScore } | null;
+  /** The `inspection.scoring` rule: maximum score, bands per result, weights and the pass mark. */
+  scoring: ScoringRule;
+  context: { ref: string; program: string; field?: string; inst: string; city: string; date: string; scope: string | null; declaredIntake: number; declaredLabs: number; declaredBooks: number; facultyOnRecord: number; postgraduate?: boolean };
 }) {
   const { message } = App.useApp();
   const router = useRouter();
   const c = props.context;
+  const rule = props.scoring;
+  // The rule as of the first render: the effects below must not re-run (and reload the draft) on every render.
+  const ruleRef = useRef(rule);
   const key = `inspection:${props.inspectionId}:${c.ref}`;
-  const [items, setItems] = useState<Line[]>(props.criteria.map((criterion) => ({ criterion, result: "COMPLIANT", remarks: "", evidence: [] })));
+  const [items, setItems] = useState<Line[]>(props.criteria.map((criterion) => ({ criterion, result: "COMPLIANT", score: defaultScore(rule, "COMPLIANT"), remarks: "", evidence: [] })));
   const [summary, setSummary] = useState("");
   const [online, setOnline] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -59,7 +68,8 @@ export default function InspectionForm(props: {
     window.addEventListener("offline", off);
     loadDraft<Draft>(key).then((d) => {
       if (d && d.criteria.join("\n") === critKey) {
-        setItems(d.items);
+        // A draft kept before score entry existed gets the result's default score.
+        setItems(d.items.map((l) => ({ ...l, score: l.score === undefined ? defaultScore(ruleRef.current, l.result) : l.score })));
         setSummary(d.summary);
         setQueued(d.queued);
         setRestoredAt(d.savedAt);
@@ -105,7 +115,7 @@ export default function InspectionForm(props: {
       }
       // 2. The checklist itself.
       const r = await submitInspection(props.inspectionId, {
-        items: lines.map((l) => ({ criterion: l.criterion, result: l.result, remarks: l.remarks, evidence: l.evidence.filter((e) => e.id).map((e) => ({ id: e.id!, name: e.name })) })),
+        items: lines.map((l) => ({ criterion: l.criterion, result: l.result, score: l.result === "NA" ? null : l.score, remarks: l.remarks, evidence: l.evidence.filter((e) => e.id).map((e) => ({ id: e.id!, name: e.name })) })),
         summary,
       });
       if (!r.ok) throw new Refused(r.message);
@@ -147,10 +157,17 @@ export default function InspectionForm(props: {
   };
 
   const fillDemo = () => {
-    setItems(items.map((x, i) => ({ ...x, result: "COMPLIANT", remarks: ["Verified on site", "Matches the declared inventory", "Seen and counted", "Records produced and checked"][i % 4] })));
+    // Mostly compliant, one line partial: a realistic score that still passes.
+    setItems(
+      items.map((x, i) => {
+        const result: Result = i === 2 ? "PARTIAL" : "COMPLIANT";
+        return { ...x, result, score: i === 2 ? (rule.bands?.PARTIAL?.[1] ?? 3) : i % 3 === 1 ? (rule.bands?.COMPLIANT?.[0] ?? 4) : rule.maxScore, remarks: i === 2 ? "Some journal subscriptions lapsed; renewal in progress" : ["Verified on site", "Matches the declared inventory", "Seen and counted", "Records produced and checked"][i % 4] };
+      }),
+    );
     setSummary(`Adequate for an intake of ${c.declaredIntake || 60}; recommend approval.`);
   };
   const setLine = (i: number, patch: Partial<Line>) => setItems((cur) => cur.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  const totals = scoreTotals(items, rule);
 
   const teamCard = (
     <Card size="small" style={{ marginBottom: 16 }} title={<span><TeamOutlined style={{ marginRight: 8, color: "#5b3cc4" }} />Team and scope</span>} data-testid="visit-team">
@@ -170,7 +187,7 @@ export default function InspectionForm(props: {
       title={c.inst}
       sub={
         <span>
-          {c.city} · {programLabel(c.program)} · <span className="mono">{c.ref}</span> · {fmtDate(c.date)}
+          {c.city} · {programmeLabel(c.program, c.field)} · <span className="mono">{c.ref}</span> · {fmtDate(c.date)}
         </span>
       }
       extra={editable ? <FillDemo onClick={fillDemo} /> : <Link href={`/pcp/applications/${c.ref}`}><Button>Open the case</Button></Link>}
@@ -183,7 +200,7 @@ export default function InspectionForm(props: {
         <Alert type="success" showIcon style={{ marginBottom: 16 }} title="This inspection report has been submitted by the team lead." />
         {teamCard}
         {props.report ? (
-          <Card size="small" title="Report">
+          <Card size="small" title="Report" extra={props.report.score ? <ScoreBadge s={props.report.score} compact /> : null}>
             <Table
               size="small"
               rowKey="criterion"
@@ -191,9 +208,7 @@ export default function InspectionForm(props: {
               dataSource={props.report.checklist}
               scroll={{ x: true }}
               columns={[
-                { title: "Criterion", dataIndex: "criterion" },
-                { title: "Result", dataIndex: "result", render: (v) => <Pill value={v} /> },
-                { title: "Remarks", dataIndex: "remarks" },
+                ...checklistColumns(rule.maxScore),
                 {
                   title: "Photos and documents",
                   dataIndex: "evidence",
@@ -263,9 +278,9 @@ export default function InspectionForm(props: {
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         {[
           ["Proposed intake", c.declaredIntake],
-          ["Laboratories declared", c.declaredLabs],
-          ["Library books declared", c.declaredBooks],
-          ["Faculty on record", c.facultyOnRecord],
+          [c.postgraduate ? "Research labs declared" : "Laboratories declared", c.declaredLabs],
+          [c.postgraduate ? "Journals declared" : "Library books declared", c.declaredBooks],
+          [c.postgraduate ? "Supervisors linked" : "Faculty on record", c.facultyOnRecord],
         ].map(([l, v]) => (
           <Col key={String(l)} xs={12} md={6}>
             <div className="pcp-stat" style={{ display: "block" }}>
@@ -275,22 +290,44 @@ export default function InspectionForm(props: {
           </Col>
         ))}
       </Row>
-      {items.map((it, i) => (
-        <Card key={it.criterion} size="small" style={{ marginBottom: 10, borderLeft: `4px solid ${RESULT_COLOR[it.result]}` }}>
+      {items.map((it, i) => {
+        const band = bandFor(rule, it.result);
+        const w = weightFor(rule, it.criterion);
+        return (
+        <Card key={it.criterion} size="small" style={{ marginBottom: 10, borderLeft: `4px solid ${RESULT_COLOR[it.result]}` }} className="inspection-line">
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
             <b>
               {i + 1}. {it.criterion}
+              {w !== 1 ? <span className="faint" style={{ fontWeight: 400, fontSize: 12 }}> · weight {w}</span> : null}
             </b>
-            <Segmented
-              value={it.result}
-              onChange={(v) => setLine(i, { result: v as Result })}
-              options={[
-                { value: "COMPLIANT", label: "Compliant" },
-                { value: "PARTIAL", label: "Partial" },
-                { value: "NON_COMPLIANT", label: "Non-compliant" },
-                { value: "NA", label: "N/A" },
-              ]}
-            />
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <Segmented
+                value={it.result}
+                // A new result starts at its default score; the inspector can move it within the band.
+                onChange={(v) => setLine(i, { result: v as Result, score: defaultScore(rule, v as string) })}
+                options={[
+                  { value: "COMPLIANT", label: "Compliant" },
+                  { value: "PARTIAL", label: "Partial" },
+                  { value: "NON_COMPLIANT", label: "Non-compliant" },
+                  { value: "NA", label: "N/A" },
+                ]}
+              />
+              <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }} className="line-score" title={band ? `A ${it.result === "COMPLIANT" ? "compliant" : it.result === "PARTIAL" ? "partial" : "non-compliant"} line scores ${band[0]} to ${band[1]}` : "Not applicable: left out of the score"}>
+                <span className="faint" style={{ fontSize: 12 }}>Score</span>
+                <InputNumber
+                  size="middle"
+                  aria-label={`Score for line ${i + 1}`}
+                  min={band?.[0] ?? 0}
+                  max={band?.[1] ?? rule.maxScore}
+                  precision={0}
+                  disabled={!band}
+                  value={band ? it.score : null}
+                  onChange={(v) => setLine(i, { score: v === null || v === undefined ? (band?.[0] ?? 0) : Math.max(band?.[0] ?? 0, Math.min(band?.[1] ?? rule.maxScore, Number(v))) })}
+                  style={{ width: 64 }}
+                />
+                <span className="faint tnum" style={{ fontSize: 12 }}>/ {rule.maxScore}</span>
+              </span>
+            </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <Input placeholder="Remarks" value={it.remarks} onChange={(e) => setLine(i, { remarks: e.target.value })} />
@@ -329,7 +366,19 @@ export default function InspectionForm(props: {
             </div>
           ) : null}
         </Card>
-      ))}
+        );
+      })}
+      <Card size="small" style={{ marginTop: 16, borderColor: totals.passed ? "#c9ecd8" : "#ffccc7", background: totals.passed ? "#f6fcf8" : "#fff8f7" }} data-testid="score-total">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontWeight: 600 }}>Inspection score</div>
+            <div className="muted" style={{ fontSize: 12.5 }}>
+              Weighted total of {totals.counted} scored line{totals.counted === 1 ? "" : "s"} (N/A lines are left out). Pass mark {rule.passPercent}%, from PCP&apos;s scoring rule.
+            </div>
+          </div>
+          <ScoreBadge s={{ total: totals.total, max: totals.max, percent: totals.percent, passPercent: totals.passPercent, passed: totals.passed }} />
+        </div>
+      </Card>
       <Card title="Summary and recommendation" style={{ marginTop: 16 }}>
         <Input.TextArea rows={3} value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="Overall finding and recommendation to PCP" />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" }}>

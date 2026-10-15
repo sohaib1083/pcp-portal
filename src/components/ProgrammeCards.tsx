@@ -8,7 +8,7 @@ import { ClockCircleOutlined, FileAddOutlined, HistoryOutlined, ReloadOutlined, 
 import { startProgrammeCase } from "@/app/actions/applications";
 import type { HistoryRow, ProgrammeCardData } from "@/lib/programmes";
 import { daysUntil } from "@/lib/format";
-import { StatusDot, StatusTag, kindLabel, programLabel } from "./common";
+import { StatusDot, StatusTag, kindLabel, programmeLabel } from "./common";
 
 export function HistoryList({ rows, limit = 4 }: { rows: HistoryRow[]; limit?: number }) {
   if (!rows.length) return <div className="faint" style={{ fontSize: 12.5 }}>No accreditation yet.</div>;
@@ -45,7 +45,7 @@ export function ProgrammeActions({ p, canStart }: { p: ProgrammeCardData; canSta
   const [pending, start] = useTransition();
   const go = (kind: "ACCREDITATION" | "RENEWAL") =>
     start(async () => {
-      const r = await startProgrammeCase(p.type as "PHARMD" | "TECH", kind);
+      const r = await startProgrammeCase(p.type, kind, p.field);
       if (r && !r.ok) message.error(r.message);
     });
   if (p.openCase)
@@ -56,7 +56,8 @@ export function ProgrammeActions({ p, canStart }: { p: ProgrammeCardData; canSta
         </Button>
       </Link>
     );
-  if (p.nocStatus !== "APPROVED")
+  // A postgraduate programme starts with PCP accreditation (the HEC issues its NOC).
+  if (!p.postgraduate && p.nocStatus !== "APPROVED")
     return p.openNoc ? (
       <Link href={`/institution/applications/${p.openNoc.ref}`}>
         <Button size="small" icon={<RightOutlined />}>Open {p.openNoc.ref}</Button>
@@ -81,16 +82,18 @@ export function ProgrammeActions({ p, canStart }: { p: ProgrammeCardData; canSta
 export function ProgrammeCard({ p, canStart }: { p: ProgrammeCardData; canStart: boolean }) {
   const d = daysUntil(p.validUntil);
   return (
-    <div style={{ border: "1px solid var(--line)", borderRadius: 14, padding: 16, height: "100%", display: "flex", flexDirection: "column", gap: 10 }} data-programme={p.type}>
+    <div style={{ border: "1px solid var(--line)", borderRadius: 14, padding: 16, height: "100%", display: "flex", flexDirection: "column", gap: 10 }} data-programme={p.type} data-field={p.field || undefined}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
         <div>
-          <div style={{ fontWeight: 650, fontSize: 15 }}>{programLabel(p.type)}</div>
-          <div className="faint mono" style={{ marginTop: 2 }}>{p.nocNumber ?? "No NOC yet"}</div>
+          <div style={{ fontWeight: 650, fontSize: 15 }}>{programmeLabel(p.type, p.field)}</div>
+          <div className="faint mono" style={{ marginTop: 2 }}>{p.postgraduate ? (p.nocNumber ? `HEC NOC ${p.nocNumber}` : "Postgraduate · HEC NOC on the case") : (p.nocNumber ?? "No NOC yet")}</div>
         </div>
         <ProgrammeActions p={p} canStart={canStart} />
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 12.5 }}>
-        <StatusDot tone={p.nocStatus === "APPROVED" ? "good" : p.nocStatus === "REJECTED" ? "bad" : p.nocStatus === "PENDING" ? "warn" : "neutral"}>NOC {p.nocStatus.toLowerCase()}</StatusDot>
+        {p.postgraduate ? null : (
+          <StatusDot tone={p.nocStatus === "APPROVED" ? "good" : p.nocStatus === "REJECTED" ? "bad" : p.nocStatus === "PENDING" ? "warn" : "neutral"}>NOC {p.nocStatus.toLowerCase()}</StatusDot>
+        )}
         <StatusDot tone={p.accreditationStatus === "VALID" ? "good" : p.accreditationStatus === "EXPIRED" ? "bad" : p.accreditationStatus === "PENDING" ? "warn" : "neutral"}>
           Accreditation {p.accreditationStatus.toLowerCase()}
           {p.validUntil ? ` until ${p.validUntil}` : ""}

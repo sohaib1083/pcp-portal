@@ -1,20 +1,22 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Card, Input, Segmented, Table } from "antd";
+import { Card, Input, Segmented, Select, Table } from "antd";
 import { FolderOpenOutlined, SearchOutlined } from "@ant-design/icons";
 import { daysUntil } from "@/lib/format";
-import { PageTitle, Pill, fmtDate, programLabel } from "./common";
+import { PROGRAM_LABELS, isPg } from "@/lib/workflow";
+import { PageTitle, Pill, fmtDate, programmeLabel } from "./common";
 
-type Row = { code: string; name: string; city: string; province: string; sector: string; status: string; students: number; faculty: number; programs: { type: string; noc: string; acc: string; until: string | null }[] };
+type Row = { code: string; name: string; city: string; province: string; sector: string; status: string; students: number; faculty: number; programs: { type: string; field?: string; noc: string; acc: string; until: string | null }[] };
 
 export default function InstitutionsTable({ rows }: { rows: Row[] }) {
   const [q, setQ] = useState("");
   const [sector, setSector] = useState("All");
+  const [prog, setProg] = useState<string>("ALL");
   const data = useMemo(() => {
     const s = q.toLowerCase();
-    return rows.filter((r) => (sector === "All" || r.sector === sector) && (!s || `${r.name} ${r.code} ${r.city} ${r.province}`.toLowerCase().includes(s)));
-  }, [rows, q, sector]);
+    return rows.filter((r) => (sector === "All" || r.sector === sector) && (prog === "ALL" || r.programs.some((p) => p.type === prog)) && (!s || `${r.name} ${r.code} ${r.city} ${r.province}`.toLowerCase().includes(s)));
+  }, [rows, q, sector, prog]);
   return (
     <>
       <PageTitle
@@ -24,6 +26,7 @@ export default function InstitutionsTable({ rows }: { rows: Row[] }) {
         extra={
           <>
             <Segmented value={sector} onChange={(v) => setSector(String(v))} options={["All", "Public", "Private"]} />
+            <Select aria-label="Programme" className="inst-programme-filter" value={prog} onChange={setProg} style={{ width: 170 }} options={[{ value: "ALL", label: "All programmes" }, ...Object.entries(PROGRAM_LABELS).map(([value, label]) => ({ value, label }))]} />
             <Input allowClear prefix={<SearchOutlined style={{ color: "var(--faint)" }} />} placeholder="Name, PCP ID, city" onChange={(e) => setQ(e.target.value)} style={{ width: 240 }} />
           </>
         }
@@ -44,9 +47,9 @@ export default function InstitutionsTable({ rows }: { rows: Row[] }) {
                   {r.programs.map((p) => {
                     const d = daysUntil(p.until);
                     return (
-                      <div key={p.type} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12.5 }}>
-                        <b style={{ minWidth: 128, fontWeight: 500 }}>{programLabel(p.type)}</b>
-                        <Pill value={p.noc} label={`NOC ${p.noc.toLowerCase()}`} />
+                      <div key={`${p.type}:${p.field ?? ""}`} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12.5 }}>
+                        <b style={{ minWidth: 128, fontWeight: 500 }}>{programmeLabel(p.type, p.field)}</b>
+                        {isPg(p.type) ? null : <Pill value={p.noc} label={`NOC ${p.noc.toLowerCase()}`} />}
                         <Pill value={p.acc} label={`Accr. ${p.acc.toLowerCase()}`} />
                         {p.until ? (
                           <span className={d !== null && d <= 180 ? "" : "faint"} style={{ color: d !== null && d <= 90 ? "#b4141f" : d !== null && d <= 180 ? "#a15c00" : undefined }}>

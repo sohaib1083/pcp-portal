@@ -50,7 +50,19 @@ type Rec = {
   updatedAt: string;
 };
 type Ev = { id: number; kind: string; fromStatus: string | null; toStatus: string | null; note: string | null; actor: string; createdAt: string };
-type Upd = { id: number; practicePlace: string; designation: string; status: string; submittedAt: string; reviewedBy: string | null; reviewedAt: string | null; reviewNote: string | null; evidence: { id: number; fileName: string } | null };
+type Upd = {
+  id: number;
+  practicePlace: string;
+  designation: string;
+  status: string;
+  submittedAt: string;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  evidence: { id: number; fileName: string } | null;
+  /** Validation routing (RFP 4.1.2): the provincial council's step before PCP, when the council has an officer on the portal. */
+  council?: { decision: string; by: string; at: string; name: string } | null;
+};
 type Doc = { id: number; docType: string; fileName: string; version: number; verificationStatus: string; uploadedBy: string; uploadedAt: string; sha256: string };
 
 /** A pharmacist's files open only for the registration officer (and the pharmacist); others see the name. */
@@ -70,8 +82,8 @@ const STATUS_HELP: Record<string, string> = {
   SUSPENDED: "Suspended by the council. May not practise while it lasts.",
   CANCELLED: "Removed from the council's register. May not practise.",
 };
-const EVENT_COLOR: Record<string, string> = { IMPORTED: "gray", STATUS: "orange", PRACTICE: "green", LOGIN: "blue", CARD: "gray", IDENTITY: "blue" };
-const EVENT_LABEL: Record<string, string> = { IMPORTED: "Imported", STATUS: "Status changed", PRACTICE: "Practice details", LOGIN: "Portal login", CARD: "Registration card", IDENTITY: "NADRA check" };
+const EVENT_COLOR: Record<string, string> = { IMPORTED: "gray", STATUS: "orange", PRACTICE: "green", LOGIN: "blue", CARD: "gray", IDENTITY: "blue", PROVINCE: "purple" };
+const EVENT_LABEL: Record<string, string> = { IMPORTED: "Imported", STATUS: "Status changed", PRACTICE: "Practice details", LOGIN: "Portal login", CARD: "Registration card", IDENTITY: "NADRA check", PROVINCE: "Provincial council validation" };
 
 export default function PharmacistRecord({
   canManage,
@@ -84,12 +96,13 @@ export default function PharmacistRecord({
 }: {
   canManage: boolean;
   p: Rec;
-  imported: { ref: string; fileName: string; createdAt: string } | null;
+  imported: { ref: string; fileName: string; createdAt: string; councilFile?: { ref: string; by: string; at: string } | null } | null;
   events: Ev[];
   updates: Upd[];
   documents: Doc[];
   nadra?: IdentityBadge | null;
 }) {
+  const withCouncil = updates.find((u) => u.status === "WITH_COUNCIL");
   const { message } = App.useApp();
   const router = useRouter();
   const { withOtp, otpModal } = useOtp();
@@ -212,7 +225,21 @@ export default function PharmacistRecord({
                 ["Valid until", p.validUntil ? <span key="v" style={{ color: lapsed ? "#a15c00" : undefined }}>{fmtDate(p.validUntil)}{lapsed ? " · ended" : ""}</span> : "No end date in the council's file"],
                 ["University", p.university],
                 ["Graduation year", String(p.graduationYear)],
-                ["Source", imported ? <span key="i"><span className="mono">{imported.ref}</span> · {imported.fileName} · {fmtDate(imported.createdAt)}</span> : "Entered before the import log"],
+                [
+                  "Source",
+                  imported ? (
+                    <span key="i">
+                      <span className="mono">{imported.ref}</span> · {imported.fileName} · {fmtDate(imported.createdAt)}
+                      {imported.councilFile ? (
+                        <div data-testid="import-council-validated">
+                          <Pill value="VERIFIED" label={`Validated by the ${council}`} /> <span className="faint" style={{ fontSize: 12 }}>file {imported.councilFile.ref} · {imported.councilFile.by} · {fmtDate(imported.councilFile.at)}</span>
+                        </div>
+                      ) : null}
+                    </span>
+                  ) : (
+                    "Entered before the import log"
+                  ),
+                ],
               ]}
             />
           </Card>
@@ -241,6 +268,14 @@ export default function PharmacistRecord({
                       Update waiting for verification · sent {timeAgo(pending.submittedAt)}
                     </div>
                     <b style={{ fontWeight: 600 }}>{pending.designation}</b>, {pending.practicePlace}
+                    {pending.council?.decision === "VALIDATED" ? (
+                      <div data-testid="council-validated" style={{ marginTop: 4 }}>
+                        <Pill value="VERIFIED" label={`Validated by the ${pending.council.name}`} />{" "}
+                        <span className="faint" style={{ fontSize: 12 }}>
+                          {pending.council.by} · {fmtDate(pending.council.at, true)}
+                        </span>
+                      </div>
+                    ) : null}
                     <div style={{ marginTop: 4 }}>
                       {pending.evidence ? (
                         <DocLink id={pending.evidence.id} open={canManage}>
@@ -264,6 +299,16 @@ export default function PharmacistRecord({
                 </div>
               </div>
             ) : null}
+            {withCouncil ? (
+              <Alert
+                data-testid="with-council"
+                style={{ marginTop: 16 }}
+                type="info"
+                showIcon
+                title={`An update is with the ${council} for validation: ${withCouncil.designation}, ${withCouncil.practicePlace}`}
+                description="It comes to PCP registration after the council validates it."
+              />
+            ) : null}
           </Card>
 
           <Card title={`Practice updates (${updates.length})`} styles={{ body: { padding: 0 } }} style={{ marginBottom: 16 }}>
@@ -277,7 +322,13 @@ export default function PharmacistRecord({
                 { title: "Sent", dataIndex: "submittedAt", render: (v) => fmtDate(v) },
                 { title: "Practice details", render: (_, u) => `${u.designation}, ${u.practicePlace}` },
                 { title: "Evidence", render: (_, u) => (u.evidence ? <DocLink id={u.evidence.id} open={canManage}>{u.evidence.fileName}</DocLink> : <span className="faint">—</span>), responsive: ["md"] },
-                { title: "Result", dataIndex: "status", render: (v, u) => <span title={u.reviewNote ?? undefined}><Pill value={v} /></span> },
+                {
+                  title: "Council",
+                  responsive: ["md"],
+                  render: (_, u) =>
+                    u.council ? <Pill value={u.council.decision === "VALIDATED" ? "VERIFIED" : "REJECTED"} label={u.council.decision === "VALIDATED" ? "Validated" : "Returned"} /> : u.status === "WITH_COUNCIL" ? <Pill value="PENDING" label="Waiting" /> : <span className="faint">Not routed</span>,
+                },
+                { title: "Result", dataIndex: "status", render: (v, u) => <span title={u.reviewNote ?? undefined}><Pill value={v === "WITH_COUNCIL" ? "PENDING" : v} label={v === "WITH_COUNCIL" ? "With the council" : v === "PENDING" ? "With PCP" : undefined} /></span> },
                 { title: "Note", dataIndex: "reviewNote", render: (v) => <span className="muted" style={{ fontSize: 12.5 }}>{v ?? "—"}</span>, responsive: ["lg"] },
               ]}
             />

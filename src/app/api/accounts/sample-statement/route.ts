@@ -3,11 +3,11 @@ import { db } from "@/db";
 import { demoStatementLines } from "@/lib/accounts";
 import { audit } from "@/lib/audit";
 import { can } from "@/lib/roles";
-import { getUser } from "@/lib/session";
+import { getActiveUser } from "@/lib/session";
 
 /** A sample bank statement CSV built from today's paid challans (demo), in the layout the importer reads. */
 export async function GET() {
-  const user = await getUser();
+  const user = await getActiveUser();
   if (!user) return new Response("Sign in required", { status: 401 });
   if (!can(user.roles, "pcp.accounts.view")) return new Response("Your role cannot download bank statements", { status: 403 });
   const day = new Date().toISOString().slice(0, 10);

@@ -4,7 +4,7 @@ import { tableCsv, tablePdf, tableXlsx, toTable } from "@/lib/exports";
 import { STANDARD_REPORTS, describeFilters, filtersFromQuery, type ReportId } from "@/lib/report-types";
 import { buildReport } from "@/lib/reports";
 import { can } from "@/lib/roles";
-import { getUser } from "@/lib/session";
+import { getActiveUser } from "@/lib/session";
 
 const TYPES = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -15,7 +15,7 @@ const TYPES = {
 /** Export a report as Excel, PDF or CSV with the same filters as the screen. Permission-checked and audited. */
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const user = await getUser();
+  const user = await getActiveUser();
   if (!user) return new Response("Sign in required", { status: 401 });
   if (!([...STANDARD_REPORTS, "payments"] as string[]).includes(id)) return new Response("No such report", { status: 404 });
   if (!can(user.roles, id === "payments" ? "pcp.accounts.view" : "pcp.reports.view")) return new Response("Your role cannot export this report", { status: 403 });

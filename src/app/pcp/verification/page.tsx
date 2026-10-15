@@ -1,6 +1,8 @@
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
+import { PcpFacultyRequests, PcpStudentRequests } from "@/components/PeopleQueues";
 import VerificationView from "@/components/VerificationView";
+import { facultyRequestRows, studentRequestRows } from "@/lib/people-data";
 import { db, schema } from "@/db";
 import { latestIdentity } from "@/lib/identity";
 import type { NadraItem } from "@/components/VerificationView";
@@ -132,8 +134,16 @@ export default async function VerificationPage({ searchParams }: { searchParams:
   };
   const nadraItems = nadraRows.map(nadraItem).filter((x): x is NadraItem => !!x);
 
+  // Requests people raise from their own logins (RFP 4.1.2): teachers' profile updates and verification
+  // requests, and students' requests their institution forwarded.
+  const [facultyReqs, studentReqs] = await Promise.all([facultyRequestRows(), studentRequestRows()]);
+
   return (
     <VerificationView
+      extraTabs={[
+        { key: "faculty-requests", text: "Teachers' requests", count: facultyReqs.filter((r) => r.status === "PENDING").length, children: <PcpFacultyRequests rows={facultyReqs} canAct={canAct} /> },
+        { key: "student-requests", text: "Student requests", count: studentReqs.filter((r) => r.status === "WITH_PCP").length, children: <PcpStudentRequests rows={studentReqs} canAct={canAct} /> },
+      ]}
       nadraOpen={nadraItems.filter((x) => x.reviewStatus === "OPEN")}
       nadraResolved={nadraItems.filter((x) => x.reviewStatus === "RESOLVED")}
       canAct={canAct}

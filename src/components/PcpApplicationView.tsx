@@ -32,14 +32,16 @@ import {
 import type { ActionResult } from "@/app/actions/faculty";
 import type { AppDetail } from "@/lib/appdetail";
 import { formatPKR } from "@/lib/format";
-import { DEFICIENCY_FROM, TECHNICAL_REVIEW_CRITERIA } from "@/lib/workflow";
-import { AppHeader, CaseFacultyTable, CertificateCard, ChecksCard, DataDescriptions, DecisionCard, DocumentsCard, MessagesCard, SelfAssessmentTable, SubjectChips, TimelineCard } from "./AppParts";
+import { DEFICIENCY_FROM, PG_TECHNICAL_REVIEW_CRITERIA, TECHNICAL_REVIEW_CRITERIA } from "@/lib/workflow";
+import { AppHeader, CaseFacultyTable, CertificateCard, ChecksCard, DataDescriptions, DecisionCard, DocumentsCard, MessagesCard, ScoreBadge, SelfAssessmentTable, SubjectChips, SupervisorChips, SupervisorTable, TimelineCard, checklistColumns } from "./AppParts";
 import { Avatar, Pill, StatusDot, fmtDate } from "./common";
+import CaseGovernanceNote from "./CaseGovernanceNote";
 import CouncilAgendaNote from "./CouncilAgendaNote";
 import { FillDemo } from "./demo-helpers";
 import { useOtp } from "./OtpConfirm";
 
-export type PcpPerms = { scrutiny: boolean; schedule: boolean; decide: boolean; issue: boolean; submitInspection: boolean };
+/** `technical`: the technical review (academic check, PG proforma, supervisors) is the technical officer's (RFP 4.1.2). */
+export type PcpPerms = { scrutiny: boolean; technical: boolean; schedule: boolean; decide: boolean; issue: boolean; submitInspection: boolean };
 type Inspector = { username: string; name: string; province: string };
 type Declared = { username: string; reason: string };
 
@@ -60,25 +62,40 @@ function ActionBlock({ title, sub, children, extra }: { title: string; sub?: str
 
 type ReviewResult = "MEETS" | "PARTLY" | "DOES_NOT_MEET";
 
+type SupResult = "ELIGIBLE" | "NOT_ELIGIBLE";
+
 function TechnicalReviewForm({ d, run, pending }: { d: AppDetail; run: (fn: () => Promise<ActionResult>) => void; pending: boolean }) {
-  const [items, setItems] = useState(TECHNICAL_REVIEW_CRITERIA.map((criterion) => ({ criterion, result: "" as ReviewResult | "", remarks: "" })));
+  const pg = d.pg;
+  const [items, setItems] = useState((pg ? PG_TECHNICAL_REVIEW_CRITERIA : TECHNICAL_REVIEW_CRITERIA).map((criterion) => ({ criterion, result: "" as ReviewResult | "", remarks: "" })));
+  const [sups, setSups] = useState(d.faculty.map((f) => ({ facultyId: f.facultyId, result: "" as SupResult | "", remarks: "" })));
   const [summary, setSummary] = useState("");
   const set = (i: number, v: Partial<(typeof items)[number]>) => setItems((prev) => prev.map((x, j) => (j === i ? { ...x, ...v } : x)));
+  const setSup = (id: number, v: Partial<(typeof sups)[number]>) => setSups((prev) => prev.map((x) => (x.facultyId === id ? { ...x, ...v } : x)));
   const failing = d.subjects.filter((s) => s.linked < s.required);
+  const confirmed = sups.filter((s) => s.result === "ELIGIBLE").length;
   return (
     <ActionBlock
-      title="Technical review"
-      sub="Academic check against PCP standards. A criterion that does not meet the standard needs a deficiency."
+      title={pg ? "Technical review: PG proforma and supervisors" : "Technical review"}
+      sub={pg ? "Check the proforma against PCP's postgraduate standards and each supervisor against the rule. A standard not met needs a deficiency." : "Academic check against PCP standards. A criterion that does not meet the standard needs a deficiency."}
       extra={
         <FillDemo
           onClick={() => {
             setItems(items.map((x) => ({ ...x, result: "MEETS", remarks: "" })));
-            setSummary(`Faculty, laboratories and library meet the standards for an intake of ${d.app.data.proposedIntake ?? "-"}; proceed to inspection.`);
+            setSups(sups.map((s) => {
+              const j = pg?.judged.find((x) => x.facultyId === s.facultyId);
+              return { ...s, result: j?.eligible === false ? "NOT_ELIGIBLE" : "ELIGIBLE", remarks: j?.eligible === false ? j.reasons.join("; ") : "" };
+            }));
+            setSummary(
+              pg
+                ? `Proforma meets the ${d.app.programType === "PHD" ? "PhD" : "MS/MPhil"} standards; supervisors checked against HEC records; intake of ${d.app.data.proposedIntake ?? "-"} fits. Proceed to inspection.`
+                : `Faculty, laboratories and library meet the standards for an intake of ${d.app.data.proposedIntake ?? "-"}; proceed to inspection.`,
+            );
           }}
         />
       }
     >
       {failing.length ? <Alert type="warning" showIcon style={{ marginBottom: 8 }} title={`Faculty short in ${failing.map((s) => s.name).join(", ")}`} /> : null}
+      {pg && d.app.checks.some((c) => !c.ok) ? <Alert type="warning" showIcon style={{ marginBottom: 8 }} title="Some automatic checks were failing at submission. See Checks at submission." /> : null}
       {items.map((it, i) => (
         <div key={it.criterion} style={{ padding: "8px 0", borderBottom: "1px solid var(--line-2)" }}>
           <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>{it.criterion}</div>
@@ -97,6 +114,44 @@ function TechnicalReviewForm({ d, run, pending }: { d: AppDetail; run: (fn: () =
           {it.result && it.result !== "MEETS" ? <Input size="small" style={{ marginTop: 6 }} placeholder="Remark" value={it.remarks} onChange={(e) => set(i, { remarks: e.target.value })} /> : null}
         </div>
       ))}
+      {pg ? (
+        <div style={{ marginTop: 12 }} data-testid="supervisor-checks">
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+            <b style={{ fontSize: 13 }}>Supervisor eligibility</b>
+            <span className="faint" style={{ fontSize: 12 }}>
+              {confirmed} confirmed · {pg.required} needed for intake {d.app.data.proposedIntake ?? 0}
+            </span>
+          </div>
+          {d.faculty.map((f) => {
+            const s = sups.find((x) => x.facultyId === f.facultyId)!;
+            const j = pg.judged.find((x) => x.facultyId === f.facultyId);
+            return (
+              <div key={f.facultyId} style={{ padding: "8px 0", borderBottom: "1px solid var(--line-2)" }} className="supervisor-check" data-faculty={f.pcpId}>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>
+                  {f.fullName} <span className="mono faint" style={{ fontSize: 11.5 }}>{f.pcpId}</span>
+                </div>
+                <div className="faint" style={{ fontSize: 12, marginBottom: 6 }}>
+                  Declared: {j?.summary}
+                  {j && !j.eligible ? <span style={{ color: "#b4141f" }}> · {j.reasons.join("; ")}</span> : null}
+                </div>
+                <Radio.Group
+                  size="small"
+                  optionType="button"
+                  className="supervisor-rating"
+                  value={s.result || undefined}
+                  // The reason for "not eligible" does not carry over when the officer changes the check back.
+                  onChange={(e) => setSup(f.facultyId, e.target.value === "ELIGIBLE" && s.result === "NOT_ELIGIBLE" ? { result: "ELIGIBLE", remarks: "" } : { result: e.target.value as SupResult })}
+                  options={[
+                    { value: "ELIGIBLE", label: "Eligible" },
+                    { value: "NOT_ELIGIBLE", label: "Not eligible" },
+                  ]}
+                />
+                {s.result === "NOT_ELIGIBLE" || s.remarks ? <Input size="small" style={{ marginTop: 6 }} placeholder={s.result === "NOT_ELIGIBLE" ? "Why not eligible (required)" : "Remark"} value={s.remarks} onChange={(e) => setSup(f.facultyId, { remarks: e.target.value })} /> : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
       <Input.TextArea rows={2} style={{ marginTop: 10 }} placeholder="Summary of the technical review" value={summary} onChange={(e) => setSummary(e.target.value)} />
       <Button
         type="primary"
@@ -104,8 +159,8 @@ function TechnicalReviewForm({ d, run, pending }: { d: AppDetail; run: (fn: () =
         style={{ marginTop: 10 }}
         icon={<ExperimentOutlined />}
         loading={pending}
-        disabled={items.some((x) => !x.result)}
-        onClick={() => run(() => recordTechnicalReview(d.app.ref, { items, summary }))}
+        disabled={items.some((x) => !x.result) || (!!pg && sups.some((s) => !s.result))}
+        onClick={() => run(() => recordTechnicalReview(d.app.ref, { items, summary, supervisors: sups.filter((s) => s.result) }))}
       >
         Record review: ready for inspection
       </Button>
@@ -266,15 +321,23 @@ export default function PcpApplicationView({
       const r = await fn();
       message[r.ok ? "success" : "error"](r.message, r.ok ? 3 : 6);
       if (r.ok) setNote("");
-      router.refresh();
+      // A refused step changes nothing on the case: no refresh, so the buttons are ready again at once.
+      if (r.ok) router.refresh();
     });
 
   const scheduled = d.inspections.find((i) => i.status === "SCHEDULED");
   const myRole = scheduled?.team.find((m) => m.username === username)?.role;
   const openDefs = d.deficiencies.filter((x) => x.status !== "ACCEPTED");
   const acc = d.app.kind !== "NOC";
+  const pg = !!d.pg;
+  // The technical officer raises (and reviews the answers to) deficiencies found in the technical review.
+  const technicalStage = s === "TECHNICAL_REVIEW" && !d.reviewDone;
+  const canRaise = perms.scrutiny || (perms.technical && technicalStage);
+  const canReviewResponses = perms.scrutiny || (perms.technical && d.deficiencyOrigin === "TECHNICAL_REVIEW");
 
   const panels: React.ReactNode[] = [];
+
+  if (perms.technical && technicalStage) panels.push(<TechnicalReviewForm key="tr" d={d} run={run} pending={pending} />);
 
   if (perms.scrutiny) {
     if (s === "SUBMITTED")
@@ -294,20 +357,31 @@ export default function PcpApplicationView({
           {openDefs.length ? <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>Resolve the open deficiencies first.</div> : null}
         </ActionBlock>,
       );
-    if (s === "TECHNICAL_REVIEW" && !d.reviewDone) panels.push(<TechnicalReviewForm key="tr" d={d} run={run} pending={pending} />);
+  }
+  if (canRaise) {
     if (DEFICIENCY_FROM.includes(s) && !(s === "TECHNICAL_REVIEW" && d.reviewDone))
       panels.push(
         <ActionBlock
           key="def"
           title="Raise a formal deficiency"
           sub="Gets an ID, a deadline and the evidence required. The case returns to this stage once the responses are accepted."
-          extra={<FillDemo onClick={() => defForm.setFieldsValue({ criterion: "Laboratories", requiredAction: "Upload the lab safety certificate for the Pharmaceutics lab", evidenceRequired: "Safety certificate", dueDays: 30 })} />}
+          extra={
+            <FillDemo
+              onClick={() =>
+                defForm.setFieldsValue(
+                  pg
+                    ? { criterion: "Supervisors", requiredAction: "Upload the HEC supervisor approval letter or the publication list for each supervisor short of the rule", evidenceRequired: "HEC approval letter or publication list", dueDays: 30 }
+                    : { criterion: "Laboratories", requiredAction: "Upload the lab safety certificate for the Pharmaceutics lab", evidenceRequired: "Safety certificate", dueDays: 30 },
+                )
+              }
+            />
+          }
         >
-          <Form form={defForm} layout="vertical" requiredMark={false} initialValues={{ dueDays: 30, criterion: "Faculty" }} onFinish={(v) => run(() => raiseDeficiency(d.app.ref, v))}>
+          <Form form={defForm} layout="vertical" requiredMark={false} initialValues={{ dueDays: 30, criterion: pg ? "Supervisors" : "Faculty" }} onFinish={(v) => run(() => raiseDeficiency(d.app.ref, v))}>
             <Row gutter={10}>
               <Col span={14}>
                 <Form.Item name="criterion" label="Criterion" rules={[{ required: true }]}>
-                  <Select options={["Faculty", "Laboratories", "Library", "Infrastructure", "Documents", "Finance"].map((x) => ({ value: x }))} />
+                  <Select options={(pg ? ["Supervisors", "HEC NOC", "Coursework", "Research laboratories", "Library", "Documents", "Finance"] : ["Faculty", "Laboratories", "Library", "Infrastructure", "Documents", "Finance"]).map((x) => ({ value: x }))} />
                 </Form.Item>
               </Col>
               <Col span={10}>
@@ -328,6 +402,8 @@ export default function PcpApplicationView({
           </Form>
         </ActionBlock>,
       );
+  }
+  if (perms.scrutiny) {
     if (s === "INSPECTION_SUBMITTED")
       panels.push(
         <ActionBlock key="fwd" title="Forward to council" sub="Your recommendation goes on the council agenda." extra={<FillDemo onClick={() => setNote(`Recommend approval for an intake of ${d.app.data.proposedIntake ?? 60}. Inspection found all criteria compliant.`)} />}>
@@ -404,6 +480,7 @@ export default function PcpApplicationView({
         }
       />
       <CouncilAgendaNote caseRef={d.app.ref} status={s} />
+      <CaseGovernanceNote refNo={d.app.ref} status={s} />
       <Row gutter={18}>
         <Col xs={24} lg={15}>
           <DecisionCard d={d} />
@@ -419,17 +496,13 @@ export default function PcpApplicationView({
               }
               extra={<span className="faint" style={{ fontSize: 12 }}>Team: {report.team.map((m) => `${m.name}${m.role === "LEAD" ? " (lead)" : ""}`).join(", ")}</span>}
             >
-              <Table
-                size="small"
-                rowKey="criterion"
-                pagination={false}
-                dataSource={report.checklist}
-                columns={[
-                  { title: "Criterion", dataIndex: "criterion" },
-                  { title: "Result", dataIndex: "result", render: (v) => <Pill value={v} /> },
-                  { title: "Remarks", dataIndex: "remarks", render: (v) => v || <span className="faint">—</span> },
-                ]}
-              />
+              {report.score ? (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 12px", marginBottom: 10, borderRadius: 10, background: report.score.passed ? "#f3fbf6" : "#fff6f5", border: `1px solid ${report.score.passed ? "#c9ecd8" : "#ffccc7"}` }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>Inspection score</span>
+                  <ScoreBadge s={report.score} />
+                </div>
+              ) : null}
+              <Table size="small" rowKey="criterion" pagination={false} dataSource={report.checklist} scroll={{ x: true }} columns={checklistColumns(report.maxScore)} />
               <div style={{ marginTop: 12, padding: "10px 12px", background: "var(--bg)", borderRadius: 10, fontSize: 13.5 }}>
                 <b>Lead&apos;s summary:</b> {report.summary}
               </div>
@@ -459,6 +532,23 @@ export default function PcpApplicationView({
                   { title: "Remarks", dataIndex: "remarks", render: (v) => v || <span className="faint">—</span> },
                 ]}
               />
+              {d.technicalReview.supervisors.length ? (
+                <>
+                  <div style={{ fontWeight: 600, fontSize: 13, margin: "12px 0 6px" }}>Supervisor eligibility</div>
+                  <Table
+                    size="small"
+                    rowKey="facultyId"
+                    pagination={false}
+                    dataSource={d.technicalReview.supervisors}
+                    data-testid="review-supervisors"
+                    columns={[
+                      { title: "Supervisor", render: (_, r) => <span>{r.name} <span className="mono faint" style={{ fontSize: 11.5 }}>{r.pcpId}</span></span> },
+                      { title: "Check", dataIndex: "result", width: 120, render: (v) => <StatusDot tone={v === "ELIGIBLE" ? "good" : "bad"}>{v === "ELIGIBLE" ? "Eligible" : "Not eligible"}</StatusDot> },
+                      { title: "Remarks", dataIndex: "remarks", render: (v) => v || <span className="faint">—</span> },
+                    ]}
+                  />
+                </>
+              ) : null}
               <div style={{ marginTop: 10, fontSize: 13.5 }}>
                 <b>Summary:</b> {d.technicalReview.summary}
               </div>
@@ -499,7 +589,7 @@ export default function PcpApplicationView({
                   {
                     title: "",
                     render: (_, r) =>
-                      perms.scrutiny && r.status === "RESPONDED" ? (
+                      canReviewResponses && r.status === "RESPONDED" ? (
                         <Space size={4}>
                           <Button size="small" type="primary" loading={pending} onClick={() => run(() => reviewDeficiency(r.id, true, "Evidence accepted"))}>
                             Accept
@@ -514,13 +604,19 @@ export default function PcpApplicationView({
               />
             </Card>
           ) : null}
-          <Card size="small" title="Application data" style={{ marginBottom: 16 }}>
+          <Card size="small" title={pg ? "PG proforma" : "Application data"} style={{ marginBottom: 16 }}>
             <DataDescriptions d={d} />
           </Card>
-          <Card size="small" title={<span><TeamOutlined style={{ marginRight: 8, color: "var(--brand)" }} />Faculty linked by Faculty ID</span>} extra={<SubjectChips d={d} />} style={{ marginBottom: 16 }}>
-            <CaseFacultyTable d={d} />
-          </Card>
-          {acc ? (
+          {pg ? (
+            <Card size="small" title={<span><TeamOutlined style={{ marginRight: 8, color: "var(--brand)" }} />Supervisors linked by Faculty ID</span>} extra={<SupervisorChips d={d} />} style={{ marginBottom: 16 }}>
+              <SupervisorTable d={d} />
+            </Card>
+          ) : (
+            <Card size="small" title={<span><TeamOutlined style={{ marginRight: 8, color: "var(--brand)" }} />Faculty linked by Faculty ID</span>} extra={<SubjectChips d={d} />} style={{ marginBottom: 16 }}>
+              <CaseFacultyTable d={d} />
+            </Card>
+          )}
+          {acc && !pg ? (
             <Card size="small" title="Self-assessment" style={{ marginBottom: 16 }}>
               <SelfAssessmentTable items={d.app.selfAssessment} />
             </Card>

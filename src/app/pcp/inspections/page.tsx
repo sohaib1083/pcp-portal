@@ -27,6 +27,7 @@ export default async function InspectionsPage({ searchParams }: { searchParams: 
       ref: schema.applications.ref,
       appStatus: schema.applications.status,
       programType: schema.applications.programType,
+      field: schema.applications.field,
       kind: schema.applications.kind,
       instName: schema.institutions.name,
       city: schema.institutions.city,
@@ -46,7 +47,7 @@ export default async function InspectionsPage({ searchParams }: { searchParams: 
   // Cases whose technical review is done and that wait for a team.
   const ready = isCoordinator
     ? await db
-        .select({ id: schema.applications.id, ref: schema.applications.ref, instName: schema.institutions.name, province: schema.institutions.province, programType: schema.applications.programType, kind: schema.applications.kind })
+        .select({ id: schema.applications.id, ref: schema.applications.ref, instName: schema.institutions.name, province: schema.institutions.province, programType: schema.applications.programType, field: schema.applications.field, kind: schema.applications.kind })
         .from(schema.applications)
         .innerJoin(schema.institutions, eq(schema.institutions.id, schema.applications.institutionId))
         .innerJoin(schema.technicalReviews, eq(schema.technicalReviews.applicationId, schema.applications.id))

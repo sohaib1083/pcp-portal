@@ -49,12 +49,13 @@ export function ExportButtons({ base, query, testId }: { base: string; query: st
 }
 
 /** Opens the list behind a figure in a side drawer. */
-export function useDrill() {
+/** The list behind a figure, in a drawer. `fetcher` defaults to PCP's drill-down; the province pages pass their own, scoped one. */
+export function useDrill(fetcher: (d: Drill) => Promise<{ ok: true; result: DrillResult } | { ok: false; message: string }> = drillDown) {
   const { message } = App.useApp();
   const [state, setState] = useState<{ drill: Drill; result: DrillResult | null } | null>(null);
   const open = async (drill: Drill) => {
     setState({ drill, result: null });
-    const r = await drillDown(drill);
+    const r = await fetcher(drill);
     if (!r.ok) {
       message.error(r.message);
       setState(null);

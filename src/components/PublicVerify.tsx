@@ -20,7 +20,7 @@ import { COUNCIL_INFO, COUNCILS, isCouncil, validityLapsed } from "@/lib/registe
 import { PublicFrame } from "./PublicHome";
 import { Pill, StatusDot, fmtDate, programLabel } from "./common";
 
-type Result = { code: string; name: string; city: string; province: string; status: string; programs: { type: string; noc: string; nocNumber: string | null; acc: string; until: string | null }[] };
+type Result = { code: string; name: string; city: string; province: string; status: string; programs: { type: string; field?: string; noc: string; nocNumber: string | null; acc: string; until: string | null }[] };
 
 /** The only pharmacist fields the public may see (guide section 9). */
 export type PublicPharmacist = { name: string; regNo: string; category: string; status: string; validUntil: string | null; council: string };
@@ -98,16 +98,26 @@ export default function PublicVerify({
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(260px, 100%), 1fr))", gap: 1, background: "var(--line)" }}>
                           {r.programs.map((p) => (
-                            <div key={p.type} style={{ background: "#fff", padding: "14px 18px" }}>
+                            <div key={`${p.type}:${p.field ?? ""}`} style={{ background: "#fff", padding: "14px 18px" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, marginBottom: 8 }}>
-                                {p.noc === "APPROVED" ? <CheckCircleFilled style={{ color: "var(--good)" }} /> : null}
+                                {p.noc === "APPROVED" || (p.field && p.acc === "VALID") ? <CheckCircleFilled style={{ color: "var(--good)" }} /> : null}
                                 {prog(p.type)}
+                                {p.field ? ` ${lang === "ur" ? tryTranslate(lang, `pgfield.${p.field}`, p.field) : p.field}` : ""}
                               </div>
                               <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", rowGap: 6, fontSize: 13 }}>
-                                <span className="muted">{t("verify.inst.noc")}</span>
-                                <span>
-                                  {pill(p.noc)} {p.nocNumber ? <span className="mono">{p.nocNumber}</span> : null}
-                                </span>
+                                {p.field ? (
+                                  <>
+                                    <span className="muted">{t("verify.inst.hecNoc")}</span>
+                                    <span>{p.nocNumber ? <span className="mono">{p.nocNumber}</span> : <span className="muted">—</span>}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="muted">{t("verify.inst.noc")}</span>
+                                    <span>
+                                      {pill(p.noc)} {p.nocNumber ? <span className="mono">{p.nocNumber}</span> : null}
+                                    </span>
+                                  </>
+                                )}
                                 <span className="muted">{t("verify.inst.acc")}</span>
                                 <span>{pill(p.acc)}</span>
                                 <span className="muted">{t("verify.validUntil")}</span>

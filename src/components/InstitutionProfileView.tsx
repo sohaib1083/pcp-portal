@@ -8,7 +8,7 @@ import { EditOutlined, EnvironmentOutlined, LockOutlined, PlusOutlined } from "@
 import { saveInstitutionCampus, updateInstitutionContact } from "@/app/actions/institution";
 import type { ActionResult } from "@/app/actions/faculty";
 import { daysUntil } from "@/lib/format";
-import { KV, PageTitle, Pill, fmtDate, programLabel } from "./common";
+import { KV, PageTitle, Pill, fmtDate, programmeLabel } from "./common";
 import { FillDemo } from "./demo-helpers";
 
 type Inst = {
@@ -28,7 +28,7 @@ type Inst = {
   registeredVia: string | null;
 };
 type Campus = { id: number; name: string; city: string; province: string; address: string | null; isMain: boolean; cases: number };
-type Program = { type: string; nocStatus: string; nocNumber: string | null; approvedIntake: number; accreditationStatus: string; accreditationValidUntil: string | null };
+type Program = { type: string; field?: string; nocStatus: string; nocNumber: string | null; approvedIntake: number; accreditationStatus: string; accreditationValidUntil: string | null };
 
 const NOC_LABEL: Record<string, string> = { APPROVED: "NOC approved", PENDING: "NOC applied", NONE: "No NOC yet", REJECTED: "NOC refused" };
 const ACC_LABEL: Record<string, string> = { VALID: "Accredited", EXPIRED: "Expired", PENDING: "Renewal pending", NONE: "Not accredited yet" };
@@ -40,12 +40,12 @@ function ProgrammeCard({ p }: { p: Program }) {
     <div style={{ border: "1px solid var(--line)", borderRadius: 14, padding: 16, height: "100%", background: "#fff" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <div>
-          <div style={{ fontWeight: 650, fontSize: 15 }}>{programLabel(p.type)}</div>
+          <div style={{ fontWeight: 650, fontSize: 15 }}>{programmeLabel(p.type, p.field)}</div>
           <div className="faint mono" style={{ marginTop: 2 }}>
-            {p.nocNumber ?? "No NOC number yet"}
+            {p.field ? (p.nocNumber ? `HEC NOC ${p.nocNumber}` : "Postgraduate · HEC NOC on the case") : (p.nocNumber ?? "No NOC number yet")}
           </div>
         </div>
-        <Pill value={p.nocStatus} label={NOC_LABEL[p.nocStatus]} />
+        {p.field ? <Pill value="NONE" label="Postgraduate" /> : <Pill value={p.nocStatus} label={NOC_LABEL[p.nocStatus]} />}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, margin: "14px 0" }}>
         <div style={{ background: "var(--bg)", borderRadius: 10, padding: "10px 12px" }}>
@@ -200,7 +200,7 @@ export default function InstitutionProfileView({ inst, campuses, programs, canEd
         {programs.length ? (
           <Row gutter={[14, 14]}>
             {programs.map((p) => (
-              <Col key={p.type} xs={24} md={12}>
+              <Col key={`${p.type}:${p.field ?? ""}`} xs={24} md={12}>
                 <ProgrammeCard p={p} />
               </Col>
             ))}

@@ -4,7 +4,7 @@ import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
 import { fileDocument } from "@/lib/letters";
 import { can } from "@/lib/roles";
-import { getUser } from "@/lib/session";
+import { getActiveUser } from "@/lib/session";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const TYPES = /^(image\/(jpeg|png|webp|heic|heif)|application\/pdf)$/;
@@ -14,7 +14,7 @@ const TYPES = /^(image\/(jpeg|png|webp|heic|heif)|application\/pdf)$/;
  * (straight away when online, or later from the tablet's queue). Filed in the case's inspection folder.
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await getUser();
+  const user = await getActiveUser();
   if (!user || !can(user.roles, "pcp.inspection.submit")) return NextResponse.json({ error: "Only an inspection lead can add evidence" }, { status: 403 });
   const insp = await db.query.inspections.findFirst({ where: eq(schema.inspections.id, Number((await params).id)) });
   if (!insp) return NextResponse.json({ error: "Inspection not found" }, { status: 404 });

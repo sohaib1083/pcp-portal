@@ -4,7 +4,7 @@ import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
 import { fileDocument } from "@/lib/letters";
 import { can } from "@/lib/roles";
-import { getUser } from "@/lib/session";
+import { getActiveUser } from "@/lib/session";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const TYPES = ["application/pdf", "image/png", "image/jpeg"];
@@ -14,7 +14,7 @@ const TYPES = ["application/pdf", "image/png", "image/jpeg"];
  * Filed under the institution's student documents as a new version; never overwrites an earlier file.
  */
 export async function POST(req: Request) {
-  const user = await getUser();
+  const user = await getActiveUser();
   if (!user || user.kind !== "institution" || !user.institutionCode) return NextResponse.json({ error: "Not allowed" }, { status: 403 });
   if (!can(user.roles, "inst.annual.file")) return NextResponse.json({ error: "Only the examination officer or the head of institution files annual returns" }, { status: 403 });
   const inst = await db.query.institutions.findFirst({ where: eq(schema.institutions.code, user.institutionCode) });

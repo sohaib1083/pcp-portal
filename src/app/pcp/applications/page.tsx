@@ -19,6 +19,7 @@ export default async function PcpApplicationsPage({ searchParams }: { searchPara
       ref: schema.applications.ref,
       kind: schema.applications.kind,
       programType: schema.applications.programType,
+      field: schema.applications.field,
       status: schema.applications.status,
       feeAmount: schema.applications.feeAmount,
       feePaidAt: schema.applications.feePaidAt,
@@ -50,6 +51,7 @@ export default async function PcpApplicationsPage({ searchParams }: { searchPara
       ref: r.ref,
       kind: r.kind,
       programType: r.programType,
+      field: r.field,
       status: r.status,
       feeAmount: r.feeAmount,
       feePaid: !!r.feePaidAt,
@@ -106,20 +108,20 @@ export default async function PcpApplicationsPage({ searchParams }: { searchPara
     const days = Number(sp.renewals) || 90;
     const until = new Date(now + days * 86400000).toISOString().slice(0, 10);
     const progs = await db
-      .select({ name: schema.institutions.name, code: schema.institutions.code, province: schema.institutions.province, type: schema.programs.type, until: schema.programs.accreditationValidUntil, intake: schema.programs.approvedIntake, status: schema.programs.accreditationStatus, institutionId: schema.programs.institutionId })
+      .select({ name: schema.institutions.name, code: schema.institutions.code, province: schema.institutions.province, type: schema.programs.type, field: schema.programs.field, until: schema.programs.accreditationValidUntil, intake: schema.programs.approvedIntake, status: schema.programs.accreditationStatus, institutionId: schema.programs.institutionId })
       .from(schema.programs)
       .innerJoin(schema.institutions, eq(schema.institutions.id, schema.programs.institutionId))
       .where(and(isNotNull(schema.programs.accreditationValidUntil), lte(schema.programs.accreditationValidUntil, until)))
       .orderBy(schema.programs.accreditationValidUntil);
     const cases = await db
-      .select({ ref: schema.applications.ref, institutionId: schema.applications.institutionId, programType: schema.applications.programType, status: schema.applications.status })
+      .select({ ref: schema.applications.ref, institutionId: schema.applications.institutionId, programType: schema.applications.programType, field: schema.applications.field, status: schema.applications.status })
       .from(schema.applications)
       .where(and(inArray(schema.applications.kind, ["RENEWAL", "ACCREDITATION"]), ne(schema.applications.status, "DRAFT")));
     renewals = {
       days,
       rows: progs.map((p) => {
-        const c = cases.find((x) => x.institutionId === p.institutionId && x.programType === p.type && !CLOSED_STATUSES.includes(x.status));
-        return { name: p.name, code: p.code, province: p.province, type: p.type, until: p.until!, intake: p.intake, status: p.status, caseRef: c?.ref ?? null, caseStatus: c?.status ?? null };
+        const c = cases.find((x) => x.institutionId === p.institutionId && x.programType === p.type && x.field === p.field && !CLOSED_STATUSES.includes(x.status));
+        return { name: p.name, code: p.code, province: p.province, type: p.type, field: p.field, until: p.until!, intake: p.intake, status: p.status, caseRef: c?.ref ?? null, caseStatus: c?.status ?? null };
       }),
     };
   }

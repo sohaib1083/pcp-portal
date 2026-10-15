@@ -1,5 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
+import { InstitutionStudentRequests } from "@/components/PeopleQueues";
 import StudentsView from "@/components/StudentsView";
+import { studentRequestRows } from "@/lib/people-data";
 import { db, schema } from "@/db";
 import { latestIdentity } from "@/lib/identity";
 import { maskCnic } from "@/lib/names";
@@ -24,8 +26,12 @@ export default async function StudentsPage() {
   const locked = await lockedYears(db, inst.id);
   const nadra = await latestIdentity("student", rows.map((s) => s.id));
 
+  // Students' own requests: the examination officer checks them before PCP (RFP 4.1.2).
+  const requests = await studentRequestRows({ institutionId: inst.id });
+
   return (
     <StudentsView
+      requests={<InstitutionStudentRequests rows={requests} canAct={can(user.roles, "inst.annual.file")} />}
       canEdit={can(user.roles, "inst.students.edit")}
       intake={Object.fromEntries(programs.map((p) => [p.type, p.approvedIntake]))}
       approved={programs.filter((p) => p.nocStatus === "APPROVED").map((p) => p.type)}

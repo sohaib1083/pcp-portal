@@ -3,7 +3,7 @@ import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
 import { ensureCard } from "@/lib/pharmacist-card";
 import { can } from "@/lib/roles";
-import { getUser } from "@/lib/session";
+import { getActiveUser } from "@/lib/session";
 import { getFile } from "@/lib/storage";
 
 /**
@@ -11,7 +11,7 @@ import { getFile } from "@/lib/storage";
  * ?download=1 saves the file; otherwise it opens in the browser (better on phones). Every download is audited.
  */
 export async function GET(req: Request) {
-  const user = await getUser();
+  const user = await getActiveUser();
   if (!user) return new Response("Sign in required", { status: 401 });
   const url = new URL(req.url);
   const id = Number(url.searchParams.get("id") ?? "");

@@ -32,6 +32,7 @@ type PendingRow = {
   submittedAt: string;
   evidence: { id: number; fileName: string } | null;
   pharmacist: { id: number; regNo: string; fullName: string; council: string; status: string; current: string | null };
+  validatedBy?: { name: string; by: string; at: string } | null;
 };
 type RecentRow = { id: number; status: string; practicePlace: string; designation: string; reviewedBy: string | null; reviewedAt: string | null; reviewNote: string | null; pharmacist: { id: number; regNo: string; fullName: string } };
 
@@ -43,6 +44,7 @@ export default function PharmacistRegister({
   pending,
   recent,
   imports,
+  councilFiles,
 }: {
   canManage: boolean;
   filters: Filters;
@@ -51,6 +53,8 @@ export default function PharmacistRegister({
   pending: PendingRow[];
   recent: RecentRow[];
   imports: ImportHistory[];
+  /** Register files the provincial councils validated and sent through the portal (validation routing, RFP 4.1.2). */
+  councilFiles?: React.ReactNode;
 }) {
   const router = useRouter();
   const go = (patch: Partial<Filters>) => {
@@ -220,7 +224,12 @@ export default function PharmacistRegister({
           {
             key: "imports",
             label: "Imports from councils",
-            children: <PharmacistImport canManage={canManage} history={imports} />,
+            children: (
+              <>
+                {councilFiles}
+                <PharmacistImport canManage={canManage} history={imports} />
+              </>
+            ),
           },
         ]}
       />
@@ -280,6 +289,11 @@ function PracticeQueue({ canManage, pending, recent }: { canManage: boolean; pen
                   </Link>
                   <div className="faint" style={{ fontSize: 12 }}>
                     <span className="mono">{r.pharmacist.regNo}</span> · {r.pharmacist.council}
+                    {r.validatedBy ? (
+                      <div data-testid="queue-council-validated" style={{ marginTop: 2 }}>
+                        <Pill value="VERIFIED" label={`Validated by the ${r.validatedBy.name}`} />
+                      </div>
+                    ) : null}
                   </div>
                 </span>
               ),

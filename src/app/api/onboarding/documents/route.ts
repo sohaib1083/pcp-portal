@@ -4,13 +4,13 @@ import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
 import { fileDocument } from "@/lib/letters";
 import { requiredDocs } from "@/lib/onboarding";
-import { getUser } from "@/lib/session";
+import { getActiveUser } from "@/lib/session";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 
 /** An applicant uploads a legal document to their own onboarding request (before an Institution ID exists). */
 export async function POST(req: Request) {
-  const user = await getUser();
+  const user = await getActiveUser();
   if (!user || !user.roles.includes("inst_applicant")) return NextResponse.json({ error: "Only an institution applicant can upload here" }, { status: 403 });
   const request = await db.query.onboardingRequests.findFirst({ where: eq(schema.onboardingRequests.applicantUsername, user.username) });
   if (!request) return NextResponse.json({ error: "No registration is linked to your account" }, { status: 404 });

@@ -1,8 +1,9 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { caseFaculty, getRule, requiredDocsFor, subjectRequirements, type ProgramRule } from "./rules";
+import { inField, pgTypeRule, supervisorEligibility, supervisorsRequired } from "./pg";
+import { caseFaculty, getPgRule, getRule, getScoringRule, requiredDocsFor, subjectRequirements, type ProgramRule } from "./rules";
 import { iso } from "./util";
-import { DEFICIENCY_FROM } from "./workflow";
+import { DEFICIENCY_FROM, SUPERVISOR_SUBJECT, isPg } from "./workflow";
 
 /** The accreditation term a case asks for: a renewal continues from the current expiry, a first accreditation starts now. */
 export function requestedPeriod(kind: string, currentUntil: string | null | undefined, years: number, now = new Date()) {
@@ -23,25 +24,46 @@ export async function loadApplication(ref: string) {
   const names = Object.fromEntries(staff.map((s) => [s.username, s.displayName]));
   const provinces = Object.fromEntries(staff.map((s) => [s.username, s.province]));
   const campuses = await db.select().from(schema.campuses).where(eq(schema.campuses.institutionId, app.institutionId)).orderBy(desc(schema.campuses.isMain), asc(schema.campuses.name));
-  const program = await db.query.programs.findFirst({ where: and(eq(schema.programs.institutionId, app.institutionId), eq(schema.programs.type, app.programType)) });
+  const program = await db.query.programs.findFirst({ where: and(eq(schema.programs.institutionId, app.institutionId), eq(schema.programs.type, app.programType), eq(schema.programs.field, app.field ?? "")) });
+  const scores = insps.length ? await db.select().from(schema.inspectionScores).where(inArray(schema.inspectionScores.inspectionId, insps.map((i) => i.id))) : [];
+  const scoring = (await getScoringRule()).value;
   const review = await db.query.technicalReviews.findFirst({ where: eq(schema.technicalReviews.applicationId, app.id), orderBy: desc(schema.technicalReviews.id) });
   const letter = app.letterDocumentId ? await db.query.documents.findFirst({ where: eq(schema.documents.id, app.letterDocumentId) }) : null;
   const messages = await db.select().from(schema.messages).where(eq(schema.messages.entityRef, app.ref)).orderBy(desc(schema.messages.id)).limit(200);
-  const faculty = await caseFaculty(app.id, app.institutionId);
+  const faculty = await caseFaculty(app.id, app.institutionId, app.programType);
 
+  const pgCase = isPg(app.programType);
   let rule: ProgramRule | null = null;
-  try {
-    rule = (await getRule<ProgramRule>(`noc.${app.programType}`)).value;
-  } catch {}
+  if (!pgCase)
+    try {
+      rule = (await getRule<ProgramRule>(`noc.${app.programType}`)).value;
+    } catch {}
   const intake = Number(app.data?.proposedIntake ?? 0);
   const subjects = rule
     ? subjectRequirements(rule, intake).map((s) => ({ ...s, linked: faculty.filter((f) => f.subject === s.name && f.activeHere).length }))
     : [];
+
+  // Postgraduate: the rule for the type, and each linked supervisor judged against it (RFP 4.1.10).
+  const pgRule = pgCase ? (await getPgRule()).value : null;
+  const pgType = pgRule ? pgTypeRule(pgRule, app.programType) : null;
+  const supervisors = pgCase ? faculty.filter((f) => f.subject === SUPERVISOR_SUBJECT) : [];
+  const judged = pgType ? supervisors.map((f) => ({ facultyId: f.facultyId, ...supervisorEligibility(f, app.programType, pgType), inField: !!app.field && inField(pgRule!, app.field, f.specialization) })) : [];
+  const pg =
+    pgRule && pgType
+      ? {
+          rule: pgType,
+          fields: pgRule.fields,
+          required: supervisorsRequired(pgType, intake),
+          eligible: judged.filter((j, i) => j.eligible && supervisors[i].activeHere).length,
+          phdInField: supervisors.filter((f, i) => f.activeHere && f.qualification === "PhD" && judged[i].inField).length,
+          judged,
+        }
+      : null;
   // The stage a deficiency was raised from: accepting the responses returns the case there.
   const lastRaise = [...events].reverse().find((e) => e.toStatus === "DEFICIENCY_RAISED" && e.fromStatus && DEFICIENCY_FROM.includes(e.fromStatus) && e.fromStatus !== "RESPONDED");
   // A decided case keeps the term written to the history; an open one shows the term it asks for.
   const hist = app.kind === "NOC" ? null : await db.query.accreditationHistory.findFirst({ where: eq(schema.accreditationHistory.applicationRef, app.ref), orderBy: desc(schema.accreditationHistory.id) });
-  const period = app.kind === "NOC" ? null : hist ? { from: hist.validFrom, until: hist.validUntil } : requestedPeriod(app.kind, program?.accreditationValidUntil, rule?.accreditationYears ?? 3, app.submittedAt ?? new Date());
+  const period = app.kind === "NOC" ? null : hist ? { from: hist.validFrom, until: hist.validUntil } : requestedPeriod(app.kind, program?.accreditationValidUntil, pgType?.accreditationYears ?? rule?.accreditationYears ?? 3, app.submittedAt ?? new Date());
 
   return {
     app: {
@@ -49,6 +71,7 @@ export async function loadApplication(ref: string) {
       ref: app.ref,
       kind: app.kind,
       programType: app.programType,
+      field: app.field ?? "",
       status: app.status,
       data: app.data ?? {},
       checks: app.checks ?? [],
@@ -111,6 +134,11 @@ export async function loadApplication(ref: string) {
       checklist: i.checklist ?? [],
       summary: i.summary,
       submittedAt: iso(i.submittedAt),
+      score: (() => {
+        const s = scores.find((x) => x.inspectionId === i.id);
+        return s ? { total: s.total, max: s.max, percent: s.percent, passPercent: s.passPercent, passed: s.passed } : null;
+      })(),
+      maxScore: scoring.maxScore,
       team: [
         { username: i.inspector, name: names[i.inspector] ?? i.inspector, province: provinces[i.inspector] ?? null, role: "LEAD" },
         ...team.filter((m) => m.inspectionId === i.id && m.username !== i.inspector).map((m) => ({ username: m.username, name: names[m.username] ?? m.username, province: provinces[m.username] ?? null, role: "MEMBER" })),
@@ -129,12 +157,15 @@ export async function loadApplication(ref: string) {
       uploadedAt: iso(d.uploadedAt)!,
       folder: d.folder,
     })),
-    requiredDocs: rule ? requiredDocsFor(rule, app.kind) : [],
+    requiredDocs: pgType ? pgType.requiredDocs : rule ? requiredDocsFor(rule, app.kind) : [],
     faculty: faculty.map((f) => ({ ...f, linkedAt: iso(f.linkedAt)! })),
     subjects,
-    subjectNames: rule?.subjects?.map((s) => s.name) ?? [],
+    subjectNames: pgCase ? [SUPERVISOR_SUBJECT] : (rule?.subjects?.map((s) => s.name) ?? []),
+    pg,
     reviewDone: !!review,
-    technicalReview: review ? { reviewer: names[review.reviewer] ?? review.reviewer, items: review.items, summary: review.summary, outcome: review.outcome, createdAt: iso(review.createdAt)! } : null,
+    technicalReview: review
+      ? { reviewer: names[review.reviewer] ?? review.reviewer, items: review.items, supervisors: review.supervisors ?? [], summary: review.summary, outcome: review.outcome, createdAt: iso(review.createdAt)! }
+      : null,
     letter: letter ? { id: letter.id, fileName: letter.fileName, version: letter.version, uploadedAt: iso(letter.uploadedAt)!, sha256: letter.sha256 } : null,
     messages: messages.map((m) => ({
       id: m.id,

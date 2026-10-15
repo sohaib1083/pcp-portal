@@ -90,6 +90,8 @@ export default function StudentsView(props: {
   intake: Record<string, number>;
   approved: string[];
   locked: Locked[];
+  /** Students' own requests waiting for the examination officer (RFP 4.1.2), shown under the title. */
+  requests?: React.ReactNode;
 }) {
   const { message } = App.useApp();
   const router = useRouter();
@@ -139,6 +141,7 @@ export default function StudentsView(props: {
           ) : null
         }
       />
+      {props.requests}
       {props.locked.length ? (
         <Alert
           type="info"

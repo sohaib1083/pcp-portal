@@ -1,13 +1,15 @@
 // Standard decision letters from one template per outcome, so wording is consistent across cases
 // (guide section 14). Approval, deferral and rejection each produce a signed PDF with a QR code.
 import { publicUrl, renderLetter } from "./letters";
-import { KIND_LABELS, PROGRAM_LABELS } from "./workflow";
+import { KIND_LABELS, programmeName } from "./workflow";
 
 type Input = {
   decision: "APPROVED" | "DEFERRED" | "REJECTED";
   ref: string;
   kind: string;
   programType: string;
+  /** Postgraduate field of study, e.g. "Pharmacology" for "PhD Pharmacology". */
+  field?: string | null;
   intake: number;
   campus?: string | null;
   inst: { name: string; code: string; city: string; province: string };
@@ -23,7 +25,7 @@ const long = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString("en-GB
 
 export function decisionLetter(o: Input) {
   const at = o.at ?? new Date();
-  const prog = PROGRAM_LABELS[o.programType] ?? o.programType;
+  const prog = programmeName(o.programType, o.field);
   const kind = KIND_LABELS[o.kind] ?? o.kind;
   const what = o.kind === "NOC" ? `a No Objection Certificate to offer the ${prog} programme${o.campus ? ` at ${o.campus}` : ""}` : `${o.kind === "RENEWAL" ? "renewal of accreditation" : "accreditation"} of the ${prog} programme`;
   const term = o.period ? `${o.period.from}-${o.period.until}` : null;

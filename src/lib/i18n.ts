@@ -173,6 +173,19 @@ const D = {
   "st.EXPIRED": { en: "Expired", ur: "میعاد ختم" },
   "prog.PHARMD": { en: "PharmD", ur: "فارم ڈی" },
   "prog.TECH": { en: "Pharmacy Technician", ur: "فارمیسی ٹیکنیشن" },
+  "prog.MPHIL": { en: "MS/MPhil", ur: "ایم ایس/ایم فل" },
+  "prog.PHD": { en: "PhD", ur: "پی ایچ ڈی" },
+  // Postgraduate fields of study (RFP 4.1.10)
+  "pgfield.Pharmaceutics": { en: "Pharmaceutics", ur: "فارماسیوٹکس" },
+  "pgfield.Pharmaceutical Chemistry": { en: "Pharmaceutical Chemistry", ur: "فارماسیوٹیکل کیمسٹری" },
+  "pgfield.Pharmacognosy": { en: "Pharmacognosy", ur: "فارماکوگنوسی" },
+  "pgfield.Pharmacology": { en: "Pharmacology", ur: "فارماکولوجی" },
+  "pgfield.Pharmacy Practice/Clinical Pharmacy": { en: "Pharmacy Practice/Clinical Pharmacy", ur: "فارمیسی پریکٹس/کلینیکل فارمیسی" },
+  "pgfield.Pharmaceutical Sciences": { en: "Pharmaceutical Sciences", ur: "فارماسیوٹیکل سائنسز" },
+  "pgfield.Pharmacy": { en: "Pharmacy", ur: "فارمیسی" },
+  "verify.inst.hecNoc": { en: "HEC NOC", ur: "ایچ ای سی این او سی" },
+  "cert.field": { en: "Field of study", ur: "شعبۂ تعلیم" },
+  "cert.hecNoc": { en: "HEC NOC", ur: "ایچ ای سی این او سی" },
 
   // ---------- Certificate check ----------
   "cert.title": { en: "Certificate check", ur: "سرٹیفکیٹ کی جانچ" },

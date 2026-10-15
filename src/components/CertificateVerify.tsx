@@ -7,7 +7,7 @@ import { fmtDate, programLabel } from "./common";
 import { daysUntil } from "@/lib/format";
 import { richText, translator, tryTranslate, type Lang } from "@/lib/i18n";
 
-type Found = { kind?: string; term?: string | null; institution: string; code: string; city: string; programType: string; intake: number; issuedAt: string | null; validUntil: string | null; sha256: string | null };
+type Found = { kind?: string; term?: string | null; institution: string; code: string; city: string; programType: string; field?: string | null; hecNoc?: string | null; intake: number; issuedAt: string | null; validUntil: string | null; sha256: string | null };
 
 export default function CertificateVerify({ no, found, lang = "en" }: { no: string; found: Found | null; lang?: Lang }) {
   const t = translator(lang);
@@ -38,7 +38,19 @@ export default function CertificateVerify({ no, found, lang = "en" }: { no: stri
               <span className="muted">{t("cert.city")}</span>
               <span>{found.city}</span>
               <span className="muted">{t("cert.program")}</span>
-              <span>{lang === "ur" ? tryTranslate(lang, `prog.${found.programType}`, programLabel(found.programType)) : programLabel(found.programType)}</span>
+              <span data-testid="verify-programme">{lang === "ur" ? tryTranslate(lang, `prog.${found.programType}`, programLabel(found.programType)) : programLabel(found.programType)}</span>
+              {found.field ? (
+                <>
+                  <span className="muted">{t("cert.field")}</span>
+                  <span data-testid="verify-field">{lang === "ur" ? tryTranslate(lang, `pgfield.${found.field}`, found.field) : found.field}</span>
+                </>
+              ) : null}
+              {found.hecNoc ? (
+                <>
+                  <span className="muted">{t("cert.hecNoc")}</span>
+                  <span className="mono">{found.hecNoc}</span>
+                </>
+              ) : null}
               <span className="muted">{t("cert.kind")}</span>
               <span>{t(acc ? (found.kind === "RENEWAL" ? "cert.kindRenewal" : "cert.kindAcc") : "cert.kindNoc")}</span>
               {acc && found.term ? (

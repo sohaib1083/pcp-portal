@@ -2,11 +2,12 @@
 // Council meetings (guide sections 4 and 14): agenda built from ready cases, a decision per item, minutes.
 import { revalidatePath } from "next/cache";
 import { unstable_rethrow } from "next/navigation";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
-import { DECISION_LABELS, draftFromRecommendation, fileAppealLetter, fileMinutes, fmtDay, lockAgenda, nextModuleRef, notifyOn, readyForCouncil, recommendationFor, renumberAgenda, reopenCaseForCouncil } from "@/lib/council";
+import { COUNCIL, DECISION_LABELS, draftFromRecommendation, fileAppealLetter, fileMinutes, fmtDay, lockAgenda, nextModuleRef, notifyOn, readyForCouncil, recommendationFor, renumberAgenda, reopenCaseForCouncil } from "@/lib/council";
+import { assertNoStayOrder, committeeList } from "@/lib/governance";
 import { requireOtp } from "@/lib/otp";
 import { can } from "@/lib/roles";
 import { requirePermission, requireUser } from "@/lib/session";
@@ -40,6 +41,7 @@ function refresh(ref?: string) {
 const MeetingInput = z.object({
   title: z.string().trim().min(3, "Give the meeting a title of at least 3 characters."),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick the meeting date."),
+  committee: z.string().trim().optional(), // Council when left out
 });
 
 export async function createMeeting(raw: unknown): Promise<ActionResult & { ref?: string }> {
@@ -49,14 +51,24 @@ export async function createMeeting(raw: unknown): Promise<ActionResult & { ref?
     if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the title and date.");
     const v = parsed.data;
     if (v.date < new Date().toISOString().slice(0, 10)) return fail("The meeting date is in the past. Pick today or a later date.");
+    const committees = await committeeList();
+    const c = committees.find((x) => x.name === (v.committee || COUNCIL));
+    if (!c) return fail(`${v.committee} is not in the committees list. Pick one of: ${committees.map((x) => x.name).join(", ")}.`);
     const ref = await db.transaction(async (tx) => {
-      const r = await nextModuleRef(tx, "council_meetings", "CM", 2, Number(v.date.slice(0, 4)));
-      await tx.insert(schema.councilMeetings).values({ ref: r, title: v.title, meetingDate: v.date, createdBy: user.username });
-      await audit(tx, { actor: user.username, action: "council.meeting.created", entity: "council_meeting", entityId: r, details: { title: v.title, date: v.date } });
+      const r = await nextModuleRef(tx, "council_meetings", c.prefix, 2, Number(v.date.slice(0, 4)));
+      await tx.insert(schema.councilMeetings).values({ ref: r, committee: c.name, title: v.title, meetingDate: v.date, createdBy: user.username });
+      await audit(tx, { actor: user.username, action: "council.meeting.created", entity: "council_meeting", entityId: r, details: { title: v.title, date: v.date, committee: c.name } });
+      // Committee members hear about the meeting in their work list and by email.
+      if (c.name !== COUNCIL) for (const m of c.members.filter((u) => u !== user.username)) await notify(tx, `user:${m}`, `${c.name} meets on ${fmtDay(v.date)}`, `${v.title} (${r}). The agenda is on the meeting page.`, `/pcp/council/${r}`);
       return r;
     });
     refresh(ref);
-    return { ok: true, message: `Meeting ${ref} created for ${fmtDay(v.date)}. Next: build its agenda from the ready cases.`, level: "success", ref };
+    return {
+      ok: true,
+      message: c.name === COUNCIL ? `Meeting ${ref} created for ${fmtDay(v.date)}. Next: build its agenda from the ready cases.` : `${c.name} meeting ${ref} created for ${fmtDay(v.date)}. Its members are notified. Next: add its agenda items.`,
+      level: "success",
+      ref,
+    };
   });
 }
 
@@ -66,6 +78,7 @@ export async function buildAgenda(meetingRef: string): Promise<ActionResult> {
   return guard(async () => {
     const m = await getMeeting(meetingRef);
     if (m.status === "CLOSED") return fail(`${m.ref} is closed. Build the agenda of a planned meeting instead.`);
+    if (m.committee !== COUNCIL) return fail(`${m.ref} is a ${m.committee} meeting. Only the Council takes the cases awaiting a decision; add committee items with Add agenda item.`);
     const added = await db.transaction(async (tx) => {
       await lockAgenda(tx);
       const { cases, appeals } = await readyForCouncil(tx);
@@ -135,13 +148,13 @@ export async function startSession(meetingRef: string): Promise<ActionResult> {
     const m = await getMeeting(meetingRef);
     if (m.status !== "PLANNED") return fail(`${m.ref} is not a planned meeting.`);
     const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.councilItems).where(eq(schema.councilItems.meetingId, m.id));
-    if (!n) return fail("The agenda is empty. Build the agenda from the ready cases first.");
+    if (!n) return fail(m.committee === COUNCIL ? "The agenda is empty. Build the agenda from the ready cases first." : "The agenda is empty. Add agenda items first.");
     await db.transaction(async (tx) => {
       await tx.update(schema.councilMeetings).set({ status: "IN_SESSION", startedAt: new Date() }).where(eq(schema.councilMeetings.id, m.id));
       await audit(tx, { actor: user.username, action: "council.session.started", entity: "council_meeting", entityId: m.ref, details: { items: n } });
     });
     refresh(m.ref);
-    return { ok: true, message: `${m.ref} is in session. Record a decision for each item.`, level: "success" };
+    return { ok: true, message: `${m.ref} is in session. ${m.committee === COUNCIL ? "Record a decision for each item." : "Record a recommendation for each item, and the action points agreed."}`, level: "success" };
   });
 }
 
@@ -168,6 +181,8 @@ export async function recordItemDecision(itemId: number, raw: unknown): Promise<
     if (!item) return fail("Agenda item not found.");
     const m = await db.query.councilMeetings.findFirst({ where: eq(schema.councilMeetings.id, item.meetingId) });
     if (!m) return fail("Meeting not found.");
+    if (m.committee !== COUNCIL) return fail(`The ${m.committee} records recommendations, not decisions. The Council decides.`);
+    if (!item.applicationId && !item.appealId) return fail("This item is a matter for discussion: record its outcome instead of a decision.");
     if (m.status !== "IN_SESSION") return fail(m.status === "PLANNED" ? "Start the session before recording decisions." : `${m.ref} is closed; its decisions are final.`);
     if (item.decision) return fail("This item already has a recorded decision.");
 
@@ -217,6 +232,7 @@ export async function recordItemDecision(itemId: number, raw: unknown): Promise<
     if (!original || !inst) return fail("The case under appeal was not found.");
     if (v.decision === "UPHELD" && !["REJECTED", "DEFERRED"].includes(original.status))
       return fail(`${original.ref} is ${original.status.toLowerCase().replace(/_/g, " ")} now, so it cannot be reopened. Dismiss the appeal or ask the officer to check the case.`);
+    await assertNoStayOrder(appeal.ref); // a court's stay order on the appeal or its case blocks the decision until lifted
     // Checked last, so a refused decision does not use up the code.
     await requireOtp(user.username, `decision:${appeal.ref}`, v.otp);
     await db.transaction(async (tx) => {
@@ -260,13 +276,14 @@ export async function closeMeeting(meetingRef: string): Promise<ActionResult> {
     const m = await getMeeting(meetingRef);
     if (m.status !== "IN_SESSION") return fail(m.status === "PLANNED" ? "Start the session first." : `${m.ref} is already closed.`);
     const items = await db.select().from(schema.councilItems).where(eq(schema.councilItems.meetingId, m.id));
-    const open = items.filter((i) => !i.decision).length;
+    const open = items.filter((i) => !i.decision && !i.resolution).length;
     const doc = await db.transaction(async (tx) => {
       await tx.update(schema.councilMeetings).set({ status: "CLOSED", closedAt: new Date() }).where(eq(schema.councilMeetings.id, m.id));
       const d = await fileMinutes(tx, m.id, { username: user.username, name: user.name });
       await tx.update(schema.councilMeetings).set({ minutesDocumentId: d.id }).where(eq(schema.councilMeetings.id, m.id));
       await audit(tx, { actor: user.username, action: "council.meeting.closed", entity: "council_meeting", entityId: m.ref, details: { items: items.length, carriedForward: open, minutes: d.id, sha256: d.sha256 } });
-      await notify(tx, "role:pcp_officer", `Minutes of ${m.ref} filed`, `${items.length - open} decision${items.length - open === 1 ? "" : "s"} recorded${open ? `; ${open} item${open === 1 ? "" : "s"} carried forward` : ""}.`, `/pcp/council/${m.ref}`);
+      const done = items.length - open;
+      await notify(tx, "role:pcp_officer", `Minutes of ${m.ref} filed`, `${done} ${m.committee === COUNCIL ? "decision" : "recommendation"}${done === 1 ? "" : "s"} recorded${open ? `; ${open} item${open === 1 ? "" : "s"} carried forward` : ""}.`, `/pcp/council/${m.ref}`);
       return d;
     });
     refresh(m.ref);
@@ -284,7 +301,7 @@ export async function agendaForCase(caseRef: string) {
     .select({ ref: schema.councilMeetings.ref, date: schema.councilMeetings.meetingDate, status: schema.councilMeetings.status, position: schema.councilItems.position, decision: schema.councilItems.decision, decidedAt: schema.councilItems.decidedAt })
     .from(schema.councilItems)
     .innerJoin(schema.councilMeetings, eq(schema.councilMeetings.id, schema.councilItems.meetingId))
-    .where(eq(schema.councilItems.applicationId, app.id))
+    .where(and(eq(schema.councilItems.applicationId, app.id), eq(schema.councilMeetings.committee, COUNCIL)))
     .orderBy(desc(schema.councilItems.id));
   const open = rows.find((r) => r.status !== "CLOSED" && !r.decision);
   if (open) return { kind: "scheduled" as const, meetingRef: open.ref, date: open.date, status: open.status, position: open.position };

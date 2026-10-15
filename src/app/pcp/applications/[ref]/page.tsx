@@ -33,6 +33,7 @@ export default async function PcpApplicationPage({ params }: { params: Promise<{
       username={user.username}
       perms={{
         scrutiny: can(user.roles, "pcp.app.scrutiny"),
+        technical: can(user.roles, "pcp.technical.review"),
         schedule: can(user.roles, "pcp.inspection.schedule"),
         decide: can(user.roles, "pcp.council.decide"),
         issue: can(user.roles, "pcp.noc.issue"),

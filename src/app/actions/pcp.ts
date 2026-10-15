@@ -3,19 +3,22 @@ import { revalidatePath } from "next/cache";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import type { ChecklistItem } from "@/db/schema";
+import type { ChecklistItem, SupervisorCheck } from "@/db/schema";
 import { requestedPeriod } from "@/lib/appdetail";
 import { audit } from "@/lib/audit";
 import { certificatePdf } from "@/lib/certificate";
 import { decisionLetter } from "@/lib/decision-letters";
+import { assertNoStayOrder } from "@/lib/governance";
+import { bandFor, scoreProblem, scoreTotals, weightFor } from "@/lib/inspection-scoring";
 import { fileDocument } from "@/lib/letters";
 import { requireOtp } from "@/lib/otp";
-import { getRule, type ProgramRule } from "@/lib/rules";
+import { pgTypeRule, supervisorsRequired } from "@/lib/pg";
+import { accreditationYearsFor, caseFaculty, getPgRule, getScoringRule } from "@/lib/rules";
 import { requirePermission, requireUser } from "@/lib/session";
 import { clockFor } from "@/lib/sla";
 import { can } from "@/lib/roles";
 import { nextRef, notify } from "@/lib/util";
-import { DEFICIENCY_FROM, KIND_LABELS, PROGRAM_LABELS, TECHNICAL_REVIEW_CRITERIA, assertTransition } from "@/lib/workflow";
+import { DEFICIENCY_FROM, KIND_LABELS, PG_TECHNICAL_REVIEW_CRITERIA, SUPERVISOR_SUBJECT, TECHNICAL_REVIEW_CRITERIA, assertTransition, isPg, programmeName } from "@/lib/workflow";
 import type { ActionResult } from "./faculty";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -52,7 +55,11 @@ async function guard<T>(fn: () => Promise<T>): Promise<T | ActionResult> {
   }
 }
 
-const progName = (t: string) => PROGRAM_LABELS[t] ?? t;
+const progName = (t: string, field?: string | null) => programmeName(t, field);
+
+/** The programme row a case belongs to (a postgraduate programme is one per field). */
+const programOf = (institutionId: number, app: { programType: string; field: string | null }) =>
+  and(eq(schema.programs.institutionId, institutionId), eq(schema.programs.type, app.programType), eq(schema.programs.field, app.field ?? ""));
 
 export async function startScrutiny(ref: string) {
   const user = await requirePermission("pcp.app.scrutiny");
@@ -79,6 +86,7 @@ export async function passScrutiny(ref: string) {
     await db.transaction(async (tx) => {
       await move(tx, app, "TECHNICAL_REVIEW", user, "Initial scrutiny passed; technical review started", { assignedOfficer: app.assignedOfficer ?? user.username });
       await notify(tx, `inst:${inst.code}`, `${ref} in technical review`, "Initial scrutiny is complete. PCP is now checking the programme against the academic standards.", `/institution/applications/${ref}`);
+      await notify(tx, "role:pcp_technical", `Technical review: ${ref}`, `${inst.shortCode} ${progName(app.programType, app.field)} ${(KIND_LABELS[app.kind] ?? app.kind).toLowerCase()} passed initial scrutiny. Record the academic check${isPg(app.programType) ? ", the PG proforma review and a check of each supervisor" : ""}.`, `/pcp/applications/${ref}`);
       await audit(tx, { actor: user.username, action: "application.scrutiny.passed", entity: "application", entityId: ref });
     });
     return done(ref, "Scrutiny passed. The technical review has started.");
@@ -87,30 +95,66 @@ export async function passScrutiny(ref: string) {
 
 const ReviewInput = z.object({
   items: z.array(z.object({ criterion: z.string(), result: z.enum(["MEETS", "PARTLY", "DOES_NOT_MEET"]), remarks: z.string().default("") })).min(1),
+  supervisors: z.array(z.object({ facultyId: z.number().int(), result: z.enum(["ELIGIBLE", "NOT_ELIGIBLE"]), remarks: z.string().max(500).default("") })).default([]),
   summary: z.string().min(5, "Write a short summary of the review"),
 });
 
-/** The officer records the technical review. A criterion that does not meet the standard needs a deficiency, not a pass. */
+/**
+ * The technical officer records the technical review: the academic check against PCP standards (RFP 4.1.2,
+ * 4.1.7.2). On a postgraduate case it is the PG proforma review plus a check of every linked supervisor against
+ * the `pg.rules` rule. A criterion that does not meet the standard, or too few eligible supervisors for the
+ * intake, needs a deficiency, not a pass.
+ */
 export async function recordTechnicalReview(ref: string, raw: unknown) {
-  const user = await requirePermission("pcp.app.scrutiny");
+  const user = await requirePermission("pcp.technical.review");
   return guard(async () => {
     const { app } = await getApp(ref);
     if (app.status !== "TECHNICAL_REVIEW") throw new Error("The case is not in technical review.");
+    const done1 = await db.query.technicalReviews.findFirst({ where: eq(schema.technicalReviews.applicationId, app.id) });
+    if (done1) throw new Error("The technical review is already recorded. The coordinator assigns the inspection team next.");
     const parsed = ReviewInput.safeParse(raw);
     if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Complete the review form.");
     const v = parsed.data;
-    const missing = TECHNICAL_REVIEW_CRITERIA.filter((c) => !v.items.some((i) => i.criterion === c));
+    const pg = isPg(app.programType);
+    const criteria = pg ? PG_TECHNICAL_REVIEW_CRITERIA : TECHNICAL_REVIEW_CRITERIA;
+    const missing = criteria.filter((c) => !v.items.some((i) => i.criterion === c));
     if (missing.length) throw new Error(`Rate every criterion. Missing: ${missing.join("; ")}`);
-    const fails = v.items.filter((i) => i.result === "DOES_NOT_MEET");
+    const items = v.items.filter((i) => criteria.includes(i.criterion));
+    const fails = items.filter((i) => i.result === "DOES_NOT_MEET");
     if (fails.length) throw new Error(`${fails.map((f) => f.criterion).join("; ")} does not meet the standard. Raise a deficiency for it instead of passing the review.`);
-    const noRemark = v.items.filter((i) => i.result === "PARTLY" && !i.remarks.trim());
+    const noRemark = items.filter((i) => i.result === "PARTLY" && !i.remarks.trim());
     if (noRemark.length) throw new Error(`Add a remark for: ${noRemark.map((f) => f.criterion).join("; ")}`);
+
+    // Postgraduate: one eligibility check per linked supervisor, and enough eligible supervisors for the intake.
+    let supervisors: SupervisorCheck[] | null = null;
+    if (pg) {
+      const linked = (await caseFaculty(app.id, app.institutionId, app.programType)).filter((f) => f.subject === SUPERVISOR_SUBJECT);
+      const unchecked = linked.filter((f) => !v.supervisors.some((s) => s.facultyId === f.facultyId));
+      if (unchecked.length) throw new Error(`Check every supervisor. Not checked: ${unchecked.map((f) => `${f.fullName} (${f.pcpId})`).join("; ")}`);
+      supervisors = linked.map((f) => {
+        const s = v.supervisors.find((x) => x.facultyId === f.facultyId)!;
+        return { facultyId: f.facultyId, pcpId: f.pcpId, name: f.fullName, result: s.result, remarks: s.remarks.trim() };
+      });
+      const noReason = supervisors.filter((s) => s.result === "NOT_ELIGIBLE" && !s.remarks);
+      if (noReason.length) throw new Error(`Say why ${noReason.map((s) => s.name).join(" and ")} ${noReason.length === 1 ? "is" : "are"} not eligible.`);
+      const { value: rule } = await getPgRule();
+      const required = supervisorsRequired(pgTypeRule(rule, app.programType), Number(app.data?.proposedIntake ?? 0));
+      const eligible = supervisors.filter((s) => s.result === "ELIGIBLE").length;
+      if (eligible < required)
+        throw new Error(`${progName(app.programType, app.field)}: ${eligible} supervisor${eligible === 1 ? "" : "s"} confirmed eligible, ${required} required for intake ${app.data?.proposedIntake ?? 0}. Raise a deficiency instead of passing the review.`);
+    }
     const clock = await clockFor("TECHNICAL_REVIEW");
     await db.transaction(async (tx) => {
-      await tx.insert(schema.technicalReviews).values({ applicationId: app.id, reviewer: user.username, items: v.items, summary: v.summary, outcome: "PROCEED" });
-      await move(tx, app, "TECHNICAL_REVIEW", user, `Technical review recorded: ${v.summary}`, {}, clock);
+      await tx.insert(schema.technicalReviews).values({ applicationId: app.id, reviewer: user.username, items, supervisors, summary: v.summary, outcome: "PROCEED" });
+      await move(tx, app, "TECHNICAL_REVIEW", user, `Technical review recorded: ${v.summary}${supervisors ? ` (${supervisors.filter((s) => s.result === "ELIGIBLE").length} of ${supervisors.length} supervisors confirmed eligible)` : ""}`, {}, clock);
       await notify(tx, "role:pcp_coordinator", `Ready for inspection: ${ref}`, `The technical review of ${ref} is complete. Assign an inspection team.`, `/pcp/applications/${ref}`);
-      await audit(tx, { actor: user.username, action: "application.technical_review.recorded", entity: "application", entityId: ref, details: { results: v.items.map((i) => i.result) } });
+      await audit(tx, {
+        actor: user.username,
+        action: "application.technical_review.recorded",
+        entity: "application",
+        entityId: ref,
+        details: { results: items.map((i) => i.result), ...(supervisors ? { supervisors: supervisors.map((s) => `${s.pcpId}:${s.result}`) } : {}) },
+      });
     });
     return done(ref, "Technical review recorded. The case is ready for an inspection team.");
   });
@@ -118,10 +162,12 @@ export async function recordTechnicalReview(ref: string, raw: unknown) {
 
 const DefInput = z.object({ criterion: z.string().min(2), requiredAction: z.string().min(5), evidenceRequired: z.string().min(2), dueDays: z.coerce.number().int().min(1).max(120) });
 
+/** Case officers raise deficiencies at any review stage; the technical officer during the technical review. */
 export async function raiseDeficiency(ref: string, raw: unknown) {
-  const user = await requirePermission("pcp.app.scrutiny");
+  const user = await requireUser("pcp");
   return guard(async () => {
     const { app, inst } = await getApp(ref);
+    if (!can(user.roles, "pcp.app.scrutiny") && !(app.status === "TECHNICAL_REVIEW" && can(user.roles, "pcp.technical.review"))) throw new Error("Not allowed: your role cannot raise a deficiency at this stage.");
     const v = DefInput.parse(raw);
     assertTransition(app.status, "DEFICIENCY_RAISED", user.roles);
     const due = new Date(Date.now() + v.dueDays * 86400000).toISOString().slice(0, 10);
@@ -149,8 +195,9 @@ async function deficiencyOrigin(applicationId: number) {
   return o && DEFICIENCY_FROM.includes(o) ? o : "UNDER_SCRUTINY";
 }
 
+/** Case officers accept or return responses; the technical officer also does for deficiencies raised in the technical review. */
 export async function reviewDeficiency(deficiencyId: number, accept: boolean, note: string) {
-  const user = await requirePermission("pcp.app.scrutiny");
+  const user = await requireUser("pcp");
   return guard(async () => {
     const def = await db.query.deficiencies.findFirst({ where: eq(schema.deficiencies.id, deficiencyId) });
     if (!def) throw new Error("Deficiency not found");
@@ -158,6 +205,7 @@ export async function reviewDeficiency(deficiencyId: number, accept: boolean, no
     const inst = await db.query.institutions.findFirst({ where: eq(schema.institutions.id, def.institutionId) });
     if (!app || !inst) throw new Error("Not found");
     const origin = await deficiencyOrigin(app.id);
+    if (!can(user.roles, "pcp.app.scrutiny") && !(origin === "TECHNICAL_REVIEW" && can(user.roles, "pcp.technical.review"))) throw new Error("Not allowed: a case officer reviews this response.");
     const backClock = origin === "DEFERRED" && app.deferUntil ? await clockFor("DEFERRED", { until: app.deferUntil }) : await clockFor(origin);
     const againClock = await clockFor("DEFICIENCY_RAISED", { until: def.dueDate });
     await db.transaction(async (tx) => {
@@ -219,7 +267,9 @@ export async function scheduleInspection(ref: string, inspector: string, date: s
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Pick a date");
     const scope =
       o.scope?.trim() ||
-      `Faculty files and appointment letters for every linked teacher; laboratories with equipment registers; library stock and journal subscriptions; student records for the current intake.`;
+      (isPg(app.programType)
+        ? `Supervisor files with publication lists and current student loads; research laboratories with equipment registers; journal subscriptions and HEC Digital Library access; coursework timetable; ethics and biosafety committee minutes; thesis synopsis approvals.`
+        : `Faculty files and appointment letters for every linked teacher; laboratories with equipment registers; library stock and journal subscriptions; student records for the current intake.`);
     const size = usernames.length;
     const clock = await clockFor("INSPECTION_SCHEDULED", { base: date });
     await db.transaction(async (tx) => {
@@ -280,6 +330,7 @@ const ChecklistInput = z.object({
       z.object({
         criterion: z.string(),
         result: z.enum(["COMPLIANT", "PARTIAL", "NON_COMPLIANT", "NA"]),
+        score: z.number().min(0).max(100).nullable().optional(),
         remarks: z.string().default(""),
         evidence: z.array(z.object({ id: z.number().int(), name: z.string().max(200) })).max(20).default([]),
       }),
@@ -307,26 +358,42 @@ export async function submitInspection(inspectionId: number, raw: unknown) {
       const ok = new Set(docs.filter((d) => d.applicationId === app.id && d.folder.includes(`inspection-reports/${app.ref}/evidence`)).map((d) => d.id));
       if (evidenceIds.some((id) => !ok.has(id))) throw new Error("A photo or document does not belong to this inspection. Remove it and attach it again.");
     }
+    // Score entry (RFP 4.1.2): each scored line within its result's band, weighted by the `inspection.scoring` rule.
+    const { value: scoring, version: scoringVersion } = await getScoringRule();
+    const items: ChecklistItem[] = v.items.map((it) => {
+      const band = bandFor(scoring, it.result);
+      return { ...it, score: band ? (it.score ?? scoring.defaults?.[it.result as "COMPLIANT"] ?? scoring.maxScore) : null, weight: weightFor(scoring, it.criterion) };
+    });
+    const problems = items.map((it) => scoreProblem(scoring, it)).filter(Boolean);
+    if (problems.length) throw new Error(`Check the scores: ${problems.join("; ")}.`);
+    const totals = scoreTotals(items, scoring);
     const team = await db.select().from(schema.inspectionTeam).where(eq(schema.inspectionTeam.inspectionId, insp.id));
     const { PDFDocument, StandardFonts } = await import("pdf-lib");
     const pdf = await PDFDocument.create();
     const page = pdf.addPage([595, 842]);
     const font = await pdf.embedFont(StandardFonts.Helvetica);
     page.drawText(`Inspection report - ${app.ref} (DEMO)`, { x: 40, y: 790, size: 16, font });
-    page.drawText(`${inst.name} - inspected ${insp.scheduledFor}`, { x: 40, y: 768, size: 11, font });
+    page.drawText(`${inst.name} - ${progName(app.programType, app.field)} - inspected ${insp.scheduledFor}`.slice(0, 95), { x: 40, y: 768, size: 11, font });
     page.drawText(`Team: ${[insp.inspector, ...team.filter((t) => t.username !== insp.inspector).map((t) => t.username)].join(", ")} (lead first)`.slice(0, 100), { x: 40, y: 750, size: 9, font });
-    v.items.forEach((it, i) => page.drawText(`${it.result.padEnd(14)} ${it.criterion}${it.evidence.length ? ` (${it.evidence.length} file${it.evidence.length === 1 ? "" : "s"})` : ""}`.slice(0, 95), { x: 40, y: 720 - i * 18, size: 10, font }));
-    page.drawText(`Summary: ${v.summary}`.slice(0, 110), { x: 40, y: 560, size: 10, font });
+    items.forEach((it, i) =>
+      page.drawText(`${it.result.padEnd(14)} ${it.score === null ? "  -  " : `${it.score}/${scoring.maxScore}`} x${it.weight}  ${it.criterion}${it.evidence?.length ? ` (${it.evidence.length} file${it.evidence.length === 1 ? "" : "s"})` : ""}`.slice(0, 100), { x: 40, y: 720 - i * 18, size: 9.5, font }),
+    );
+    page.drawText(`Score: ${totals.total} of ${totals.max} (${totals.percent}%) - ${totals.passed ? "PASS" : "BELOW THE PASS MARK"} (pass mark ${totals.passPercent}%)`, { x: 40, y: 575, size: 10.5, font });
+    page.drawText(`Summary: ${v.summary}`.slice(0, 110), { x: 40, y: 555, size: 10, font });
     const bytes = Buffer.from(await pdf.save());
     await db.transaction(async (tx) => {
-      await tx.update(schema.inspections).set({ status: "SUBMITTED", checklist: v.items as ChecklistItem[], summary: v.summary, submittedAt: new Date() }).where(eq(schema.inspections.id, insp.id));
+      await tx.update(schema.inspections).set({ status: "SUBMITTED", checklist: items, summary: v.summary, submittedAt: new Date() }).where(eq(schema.inspections.id, insp.id));
+      await tx
+        .insert(schema.inspectionScores)
+        .values({ inspectionId: insp.id, total: totals.total, max: totals.max, percent: totals.percent, passPercent: totals.passPercent, passed: totals.passed, ruleVersion: scoringVersion })
+        .onConflictDoNothing();
       await fileDocument(tx, { institutionId: inst.id, folder: `inspection-reports/${app.ref}`, docType: "Inspection report", fileName: "inspection-report.pdf", bytes, applicationId: app.id, uploadedBy: user.username });
-      await move(tx, app, "INSPECTION_SUBMITTED", user, "Digital checklist submitted");
-      await notify(tx, app.assignedOfficer ? `user:${app.assignedOfficer}` : "role:pcp_officer", `Inspection report: ${app.ref}`, `${inst.shortCode} inspection submitted by ${user.name}.`, `/pcp/applications/${app.ref}`);
-      await audit(tx, { actor: user.username, action: "inspection.submitted", entity: "application", entityId: app.ref, details: { results: v.items.map((i) => i.result), evidence: evidenceIds.length } });
+      await move(tx, app, "INSPECTION_SUBMITTED", user, `Digital checklist submitted: score ${totals.percent}% (${totals.passed ? "pass" : "below the pass mark"})`);
+      await notify(tx, app.assignedOfficer ? `user:${app.assignedOfficer}` : "role:pcp_officer", `Inspection report: ${app.ref}`, `${inst.shortCode} inspection submitted by ${user.name}. Score ${totals.total} of ${totals.max} (${totals.percent}%), ${totals.passed ? "above" : "below"} the pass mark of ${totals.passPercent}%.`, `/pcp/applications/${app.ref}`);
+      await audit(tx, { actor: user.username, action: "inspection.submitted", entity: "application", entityId: app.ref, details: { results: items.map((i) => i.result), scores: items.map((i) => i.score), percent: totals.percent, passed: totals.passed, scoringRule: scoringVersion, evidence: evidenceIds.length } });
     });
     revalidatePath("/pcp/inspections");
-    return done(app.ref, "Inspection report submitted.");
+    return done(app.ref, `Inspection report submitted. Score ${totals.percent}%: ${totals.passed ? "pass" : "below the pass mark"}.`);
   });
 }
 
@@ -375,6 +442,7 @@ export async function recordDecision(ref: string, decision: "APPROVED" | "DEFERR
   return guard(async () => {
     const { app, inst } = await getApp(ref);
     assertTransition(app.status, decision, user.roles);
+    await assertNoStayOrder(app.ref); // a court's stay order on the case (or its appeal) blocks the decision until it is lifted
     const grounds = (opts.grounds ?? "").trim() || (decision !== "APPROVED" ? (note ?? "").trim() : "");
     const today = new Date().toISOString().slice(0, 10);
     if (decision === "DEFERRED") {
@@ -385,13 +453,13 @@ export async function recordDecision(ref: string, decision: "APPROVED" | "DEFERR
     if (decision === "REJECTED" && grounds.length < 10) throw new Error("A rejection must state its grounds (at least a sentence).");
     await requireOtp(user.username, `decision:${ref}`, opts.otp);
 
-    const program = await db.query.programs.findFirst({ where: and(eq(schema.programs.institutionId, inst.id), eq(schema.programs.type, app.programType)) });
-    const { value: rule } = await getRule<ProgramRule>(`noc.${app.programType}`);
-    const period = app.kind === "NOC" ? null : requestedPeriod(app.kind, program?.accreditationValidUntil, rule.accreditationYears ?? 3, app.submittedAt ?? new Date());
+    const program = await db.query.programs.findFirst({ where: programOf(inst.id, app) });
+    const years = await accreditationYearsFor(app.programType);
+    const period = app.kind === "NOC" ? null : requestedPeriod(app.kind, program?.accreditationValidUntil, years, app.submittedAt ?? new Date());
     const intake = Number(app.data?.proposedIntake ?? 0);
     const campus = app.campusId ? (await db.query.campuses.findFirst({ where: eq(schema.campuses.id, app.campusId) }))?.name : app.data?.campus;
     const at = new Date();
-    const pdf = await decisionLetter({ decision, ref, kind: app.kind, programType: app.programType, intake, campus, inst, note, grounds, deferUntil: opts.deferUntil, period, signedBy: user.name, at });
+    const pdf = await decisionLetter({ decision, ref, kind: app.kind, programType: app.programType, field: app.field, intake, campus, inst, note, grounds, deferUntil: opts.deferUntil, period, signedBy: user.name, at });
     const deferClock = decision === "DEFERRED" ? await clockFor("DEFERRED", { until: opts.deferUntil }) : undefined;
     const folder = app.kind === "NOC" ? `noc-applications/${ref}` : `accreditation/${period?.from ?? at.getFullYear()}/${ref}`;
 
@@ -407,7 +475,7 @@ export async function recordDecision(ref: string, decision: "APPROVED" | "DEFERR
         { decision, decisionNote: note || null, decisionGrounds: decision === "APPROVED" ? null : grounds, deferUntil: decision === "DEFERRED" ? opts.deferUntil : null, decidedAt: at, letterDocumentId: letter.id },
         deferClock,
       );
-      const where = and(eq(schema.programs.institutionId, inst.id), eq(schema.programs.type, app.programType));
+      const where = programOf(inst.id, app);
       if (decision === "REJECTED") {
         if (app.kind === "NOC") await tx.update(schema.programs).set({ nocStatus: "REJECTED" }).where(where);
         else if (program && period) {
@@ -434,6 +502,7 @@ export async function issueCertificate(ref: string, otp?: string) {
   return guard(async () => {
     const { app, inst } = await getApp(ref);
     assertTransition(app.status, "NOC_ISSUED", user.roles);
+    await assertNoStayOrder(app.ref); // no certificate either while a stay order is in force
     await requireOtp(user.username, `certificate:${ref}`, otp);
     const year = new Date().getFullYear();
     const acc = app.kind !== "NOC";
@@ -443,20 +512,22 @@ export async function issueCertificate(ref: string, otp?: string) {
     const issuedAt = new Date();
     const today = issuedAt.toISOString().slice(0, 10);
     const intake = Number(app.data?.proposedIntake ?? 0);
-    const program = await db.query.programs.findFirst({ where: and(eq(schema.programs.institutionId, inst.id), eq(schema.programs.type, app.programType)) });
-    const { value: rule } = await getRule<ProgramRule>(`noc.${app.programType}`);
-    const years = rule.accreditationYears ?? 3;
+    const program = await db.query.programs.findFirst({ where: programOf(inst.id, app) });
+    const years = await accreditationYearsFor(app.programType);
     // A renewal continues from the current expiry; a first accreditation (or a lapsed one) starts today.
     const current = program?.accreditationValidUntil;
     const validFrom = acc && app.kind === "RENEWAL" && current && current > today ? current : today;
     const plusYears = (d: string, y: number) => `${Number(d.slice(0, 4)) + y}${d.slice(4)}`;
     const validUntil = acc ? plusYears(validFrom, years) : new Date(Date.now() + 5 * 365 * 86400000).toISOString().slice(0, 10);
-    const bytes = await certificatePdf({ kind: app.kind, validFrom, certNo, institution: inst.name, institutionCode: inst.code, city: inst.city, program: progName(app.programType), intake, issuedAt, validUntil, decisionNote: app.decisionNote });
+    const pg = isPg(app.programType);
+    const hecNoc = pg ? (app.data?.hecNocNumber ?? "").trim() || null : null;
+    const bytes = await certificatePdf({ kind: app.kind, validFrom, certNo, institution: inst.name, institutionCode: inst.code, city: inst.city, program: progName(app.programType, app.field), intake, issuedAt, validUntil, decisionNote: app.decisionNote, hecNoc });
     await db.transaction(async (tx) => {
       await move(tx, app, "NOC_ISSUED", user, `Certificate ${certNo} issued`, { certificateNo: certNo, issuedAt, validUntil });
-      const where = and(eq(schema.programs.institutionId, inst.id), eq(schema.programs.type, app.programType));
+      const where = programOf(inst.id, app);
       if (acc && program) {
-        await tx.update(schema.programs).set({ accreditationStatus: "VALID", accreditationValidUntil: validUntil, approvedIntake: intake }).where(where);
+        // A postgraduate programme card shows the HEC NOC it was accredited on.
+        await tx.update(schema.programs).set({ accreditationStatus: "VALID", accreditationValidUntil: validUntil, approvedIntake: intake, ...(hecNoc ? { nocNumber: hecNoc } : {}) }).where(where);
         await tx.insert(schema.accreditationHistory).values({
           programId: program.id,
           year: Number(validFrom.slice(0, 4)),
@@ -484,8 +555,8 @@ export async function issueCertificate(ref: string, otp?: string) {
         `inst:${inst.code}`,
         `${acc ? "Accreditation certificate" : "NOC"} issued: ${certNo}`,
         acc
-          ? `Your ${progName(app.programType)} accreditation is valid until ${validUntil} for an intake of ${intake}. Anyone can verify it by scanning its QR code.`
-          : `Your ${progName(app.programType)} NOC is issued. Anyone can verify it by scanning its QR code.`,
+          ? `Your ${progName(app.programType, app.field)} accreditation is valid until ${validUntil} for an intake of ${intake}. Anyone can verify it by scanning its QR code.`
+          : `Your ${progName(app.programType, app.field)} NOC is issued. Anyone can verify it by scanning its QR code.`,
         `/institution/applications/${ref}`,
       );
       await audit(tx, { actor: user.username, action: "certificate.issued", entity: "application", entityId: ref, details: { certNo, kind: KIND_LABELS[app.kind], sha256: doc.sha256, otp: "verified" } });

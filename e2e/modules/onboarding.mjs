@@ -353,10 +353,12 @@ try {
   await admin.goto(`${BASE}/pcp/admin`);
   await admin.getByRole("button", { name: "Add user" }).click();
   await drawer(admin).getByLabel("Role").click();
+  // Wait for the dropdown to finish opening before counting (it animates in).
+  await admin.locator(".ant-select-dropdown:visible .ant-select-item-option", { hasText: "Legal officer" }).waitFor({ timeout: 20000 });
   const options = await admin.locator(".ant-select-dropdown:visible .ant-select-item-option").count();
   await shot(admin, "admin-role-picker");
-  log("admin: the role picker offers", options, "roles (8 PCP + 6 institution)");
-  if (options < 14) throw new Error("role picker is missing roles");
+  log("admin: the role picker offers", options, "roles (10 PCP + 6 institution)");
+  if (options < 16) throw new Error("role picker is missing roles");
   await adminCtx.close();
 
   console.log(`\nONBOARDING TEST PASSED · ${ref} → ${code} · applicant ${applicant.username}`);

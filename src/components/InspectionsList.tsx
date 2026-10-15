@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Alert, App, Button, Card, Empty, Input, Select, Space, Table, Tag } from "antd";
 import { CalendarOutlined, CloseOutlined, EnvironmentOutlined, FilterOutlined, StopOutlined, TeamOutlined } from "@ant-design/icons";
 import { declareConflict, withdrawConflict } from "@/app/actions/pcp";
-import { PageTitle, Pill, StatusDot, fmtDate, kindLabel, programLabel } from "./common";
+import { PageTitle, Pill, StatusDot, fmtDate, kindLabel, programmeLabel } from "./common";
 import { FillDemo } from "./demo-helpers";
 
 type Row = {
@@ -18,6 +18,7 @@ type Row = {
   ref: string;
   appStatus: string;
   programType: string;
+  field?: string;
   kind: string;
   instName: string;
   city: string;
@@ -82,7 +83,7 @@ export default function InspectionsList({
   isInspector: boolean;
   username: string;
   month: string | null;
-  awaiting: { ref: string; instName: string; province: string; programType: string; kind: string }[];
+  awaiting: { ref: string; instName: string; province: string; programType: string; field?: string; kind: string }[];
   inspectors: { username: string; name: string; province: string }[];
   institutions: { id: number; name: string; shortCode: string; province: string }[];
   declarations: Declaration[];
@@ -120,7 +121,7 @@ export default function InspectionsList({
                   </div>
                   <div style={{ fontWeight: 650, fontSize: 15, marginTop: 6 }}>{r.instName}</div>
                   <div className="muted" style={{ fontSize: 13 }}>
-                    <EnvironmentOutlined /> {r.city}, {r.province} · {kindLabel(r.kind)} · {programLabel(r.programType)}
+                    <EnvironmentOutlined /> {r.city}, {r.province} · {kindLabel(r.kind)} · {programmeLabel(r.programType, r.field)}
                   </div>
                   <div className="faint" style={{ fontSize: 12.5, marginTop: 4 }}>
                     <TeamOutlined /> {r.team.map((m) => m.name).join(", ")}
@@ -147,7 +148,7 @@ export default function InspectionsList({
               { title: "Application", dataIndex: "ref", render: (v) => <Link href={`/pcp/applications/${v}`} className="mono" style={{ fontWeight: 600 }}>{v}</Link> },
               { title: "Institution", dataIndex: "instName" },
               { title: "Province", dataIndex: "province", render: (v) => <span>{v} <span className="faint" style={{ fontSize: 12 }}><StopOutlined /> {v} members excluded</span></span> },
-              { title: "Type", render: (_, r) => `${kindLabel(r.kind)} · ${programLabel(r.programType)}` },
+              { title: "Type", render: (_, r) => `${kindLabel(r.kind)} · ${programmeLabel(r.programType, r.field)}` },
               { title: "", align: "right", render: (_, r) => <Link href={`/pcp/applications/${r.ref}`}><Button size="small" type="primary">Assign team</Button></Link> },
             ]}
           />
@@ -163,7 +164,7 @@ export default function InspectionsList({
             { title: "Date", dataIndex: "scheduledFor", render: (v) => fmtDate(v) },
             { title: "Application", dataIndex: "ref", render: (v) => <Link href={`/pcp/applications/${v}`} className="mono" style={{ fontWeight: 600 }}>{v}</Link> },
             { title: "Institution", render: (_, r) => <span>{r.instName}<div className="faint" style={{ fontSize: 12 }}>{r.city}, {r.province}</div></span> },
-            { title: "Type", render: (_, r) => `${kindLabel(r.kind)} · ${programLabel(r.programType)}` },
+            { title: "Type", render: (_, r) => `${kindLabel(r.kind)} · ${programmeLabel(r.programType, r.field)}` },
             {
               title: "Team",
               render: (_, r) => (

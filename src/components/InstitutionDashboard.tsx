@@ -13,12 +13,12 @@ import {
   TeamOutlined,
   WarningFilled,
 } from "@ant-design/icons";
-import { PageTitle, Pill, StatCard, StatusTag, fmtDate, kindLabel, programLabel, timeAgo } from "./common";
+import { PageTitle, Pill, StatCard, StatusTag, fmtDate, kindLabel, programLabel, programmeLabel, timeAgo } from "./common";
 import { daysUntil } from "@/lib/format";
 import type { ProgrammeCardData } from "@/lib/programmes";
 import { HistoryList, ProgrammeActions } from "./ProgrammeCards";
 
-type Program = { type: string; nocStatus: string; nocNumber: string | null; accreditationStatus: string; validUntil: string | null; intake: number; students: number; faculty: number; card?: ProgrammeCardData };
+type Program = { type: string; field?: string; postgraduate?: boolean; nocStatus: string; nocNumber: string | null; accreditationStatus: string; validUntil: string | null; intake: number; students: number; faculty: number; card?: ProgrammeCardData };
 
 const LEVEL = {
   error: { icon: <ExclamationCircleFilled />, c: "#b4141f", bg: "#fff1f0" },
@@ -34,19 +34,25 @@ function ProgramCard({ p, canStart }: { p: Program; canStart?: boolean }) {
     <div style={{ border: "1px solid var(--line)", borderRadius: 14, padding: 16, height: "100%" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <div>
-          <div style={{ fontWeight: 650, fontSize: 15 }}>{programLabel(p.type)}</div>
+          <div style={{ fontWeight: 650, fontSize: 15 }}>{programmeLabel(p.type, p.field)}</div>
           <div className="faint mono" style={{ marginTop: 2 }}>
-            {p.nocNumber ?? "No NOC yet"}
+            {p.postgraduate ? (p.nocNumber ? `HEC NOC ${p.nocNumber}` : "Postgraduate · HEC NOC on the case") : (p.nocNumber ?? "No NOC yet")}
           </div>
         </div>
-        <Pill value={p.nocStatus} label={p.nocStatus === "APPROVED" ? "NOC approved" : p.nocStatus === "NONE" ? "No NOC" : undefined} />
+        {p.postgraduate ? <Pill value="NONE" label="Postgraduate" /> : <Pill value={p.nocStatus} label={p.nocStatus === "APPROVED" ? "NOC approved" : p.nocStatus === "NONE" ? "No NOC" : undefined} />}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, margin: "16px 0" }}>
-        {[
-          ["Students", p.students],
-          ["Faculty", p.faculty],
-          ["Approved intake", p.intake || "—"],
-        ].map(([l, v]) => (
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${p.postgraduate ? 2 : 3}, 1fr)`, gap: 8, margin: "16px 0" }}>
+        {(p.postgraduate
+          ? [
+              ["Supervisors", p.faculty],
+              ["Approved intake", p.intake || "—"],
+            ]
+          : [
+              ["Students", p.students],
+              ["Faculty", p.faculty],
+              ["Approved intake", p.intake || "—"],
+            ]
+        ).map(([l, v]) => (
           <div key={String(l)} style={{ background: "var(--bg)", borderRadius: 10, padding: "10px 12px" }}>
             <div className="faint" style={{ fontSize: 11.5 }}>
               {l}
@@ -88,7 +94,7 @@ export default function InstitutionDashboard(props: {
   programs: Program[];
   canStart?: boolean;
   actions: { text: string; level: "error" | "warning" | "info"; link?: string }[];
-  apps: { ref: string; kind: string; programType: string; status: string; updatedAt: string }[];
+  apps: { ref: string; kind: string; programType: string; field?: string; status: string; updatedAt: string }[];
   notifications: { id: number; title: string; body: string; link: string | null; createdAt: string }[];
 }) {
   const { inst, programs } = props;
@@ -157,7 +163,7 @@ export default function InstitutionDashboard(props: {
             ) : (
               <Row gutter={[14, 14]}>
                 {programs.map((p) => (
-                  <Col key={p.type} xs={24} md={12}>
+                  <Col key={`${p.type}:${p.field ?? ""}`} xs={24} md={12}>
                     <ProgramCard p={p} canStart={props.canStart} />
                   </Col>
                 ))}
@@ -173,7 +179,7 @@ export default function InstitutionDashboard(props: {
               locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No applications yet" /> }}
               columns={[
                 { title: "Reference", dataIndex: "ref", render: (v) => <Link href={`/institution/applications/${v}`} className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{v}</Link> },
-                { title: "Type", render: (_, r) => `${kindLabel(r.kind)} · ${programLabel(r.programType)}` },
+                { title: "Type", render: (_, r) => `${kindLabel(r.kind)} · ${programmeLabel(r.programType, r.field)}` },
                 { title: "Status", dataIndex: "status", render: (v) => <StatusTag status={v} /> },
                 { title: "Updated", dataIndex: "updatedAt", render: (v) => <span className="muted">{timeAgo(v)}</span> },
               ]}

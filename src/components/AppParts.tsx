@@ -23,7 +23,7 @@ import {
 import type { AppDetail } from "@/lib/appdetail";
 import { slaClock } from "@/lib/sla-view";
 import { STATUS_LABELS, TRACK_LABELS, stepIndex } from "@/lib/workflow";
-import { Avatar, Pill, StatusDot, StatusTag, fmtDate, kindLabel, programLabel, timeAgo } from "./common";
+import { Avatar, Pill, StatusDot, StatusTag, fmtDate, kindLabel, programLabel, programmeLabel, timeAgo } from "./common";
 import { SamplePdfButton } from "./demo-helpers";
 
 /** Upload through the permission-checked documents API. */
@@ -55,7 +55,9 @@ export function courtFor(d: AppDetail): Court {
   const inspection = d.inspections.find((i) => i.status === "SCHEDULED");
   switch (d.app.status) {
     case "DRAFT":
-      return { who: "Institution", name: d.inst?.name, what: "Pick the campus, link faculty by Faculty ID and attach the documents. Pay when every check passes; then the Head or Principal submits.", tone: "brand" };
+      return d.pg
+        ? { who: "Institution", name: d.inst?.name, what: "Fill the PG proforma, link the eligible supervisors by Faculty ID and upload the HEC NOC. Pay when every check passes; then the Head or Principal submits.", tone: "brand" }
+        : { who: "Institution", name: d.inst?.name, what: "Pick the campus, link faculty by Faculty ID and attach the documents. Pay when every check passes; then the Head or Principal submits.", tone: "brand" };
     case "SUBMITTED":
       return { who: "PCP Officer", what: "Waiting for an officer to start the initial scrutiny.", tone: "info" };
     case "UNDER_SCRUTINY":
@@ -67,7 +69,9 @@ export function courtFor(d: AppDetail): Court {
     case "TECHNICAL_REVIEW":
       return d.reviewDone
         ? { who: "Inspection coordinator", what: "Technical review passed. An inspection team is being assigned.", tone: "violet" }
-        : { who: "PCP Officer", name: d.app.assignedOfficerName, what: "Technical review: faculty, laboratories, library and intake are checked against PCP's academic standards.", tone: "info" };
+        : d.pg
+          ? { who: "Technical officer", what: "Technical review: the PG proforma, research laboratories, library and each supervisor's eligibility are checked against PCP's postgraduate standards.", tone: "info" }
+          : { who: "Technical officer", what: "Technical review: faculty, laboratories, library and intake are checked against PCP's academic standards.", tone: "info" };
     case "INSPECTION_SCHEDULED":
       return {
         who: "Inspection team",
@@ -122,8 +126,8 @@ export function AppHeader({ d, extra }: { d: AppDetail; extra?: React.ReactNode 
     <Card style={{ marginBottom: 18 }} styles={{ body: { padding: "20px 22px" } }}>
       <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
         <div style={{ minWidth: 0 }}>
-          <div className="pcp-eyebrow">
-            {kindLabel(d.app.kind)} · {programLabel(d.app.programType)}
+          <div className="pcp-eyebrow" data-testid="case-programme">
+            {kindLabel(d.app.kind)} · {programmeLabel(d.app.programType, d.app.field)}
             {d.app.campusName ? ` · ${d.app.campusName}` : ""}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -181,8 +185,8 @@ export function AppHeader({ d, extra }: { d: AppDetail; extra?: React.ReactNode 
 
 /** Where to fix each failing check on the institution's screen ("the user fixes that line"). */
 const FIX: [RegExp, string][] = [
-  [/^(fields|intake|labs|infrastructure|library|compliance)$/, "#case-form"],
-  [/^(subject:|faculty_|duplicates|load)/, "#case-faculty"],
+  [/^(fields|intake|labs|infrastructure|library|compliance|duration|coursework|thesis|research_labs|pg_library)$/, "#case-form"],
+  [/^(subject:|faculty_|duplicates|load|supervisor|phd_in_field)/, "#case-faculty"],
   [/^self_assessment$/, "#case-self"],
   [/^documents$/, "#case-documents"],
 ];
@@ -231,7 +235,7 @@ export function ChecksCard({ checks, onRecheck, recheckLoading, fixLinks, title 
         })}
       </div>
       <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: "8px 0 0" }}>
-        Rules come from a versioned table (per-subject faculty, teacher load, intake, labs, library, documents, dues), so PCP can change them without code changes.
+        Rules come from versioned reference rules (per-subject faculty or postgraduate supervisors, teacher load, intake, labs, library, documents, dues), so PCP can change them without code changes.
       </Typography.Paragraph>
     </Card>
   );
@@ -519,7 +523,155 @@ export function SelfAssessmentTable({ items }: { items: AppDetail["app"]["selfAs
   );
 }
 
+const yesNo = (v: unknown, yes: string, no: string) => (v === undefined || v === null ? null : v ? yes : no);
+
+/** The postgraduate proforma (RFP 4.1.10), read-only. */
+function PgDataDescriptions({ d }: { d: AppDetail }) {
+  const data = d.app.data;
+  const r = d.pg?.rule;
+  const rows: [string, React.ReactNode][] = [
+    ["Programme", programmeLabel(d.app.programType, d.app.field)],
+    ["Campus", d.app.campusName],
+    ["Annual intake", data.proposedIntake ? `${data.proposedIntake} students / year` : null],
+    ...(d.period ? ([["Accreditation term", `${d.period.from}–${d.period.until}`]] as [string, React.ReactNode][]) : []),
+    ["Duration", data.durationYears ? `${data.durationYears} years${r ? ` (minimum ${r.minDurationYears})` : ""}` : null],
+    ["Coursework", data.courseworkCredits ? `${data.courseworkCredits} credit hours${r ? ` (minimum ${r.minCourseworkCredits})` : ""}` : null],
+    ["Thesis", yesNo(data.thesisRequired, "Required", "Not required")],
+    ["Research laboratories", data.researchLabs ?? null],
+    ["Laboratory list", data.researchLabList],
+    ["Major equipment", data.equipment],
+    ["Journals", data.libraryJournals],
+    ["HEC Digital Library", yesNo(data.hecDigitalLibrary, "Access in place", "No access")],
+    ["HEC NOC", data.hecNocNumber ? `${data.hecNocNumber}${data.hecNocDate ? ` · ${fmtDate(data.hecNocDate)}` : ""}` : null],
+    ...(d.app.kind === "RENEWAL" ? ([["Annual compliance", data.complianceConfirmed ? "Confirmed by the institution" : "Not confirmed"]] as [string, React.ReactNode][]) : []),
+    ["Notes", data.notes],
+  ];
+  return (
+    <dl className="pcp-kv" style={{ margin: 0 }} data-testid="pg-proforma">
+      {rows.map(([k, v]) => (
+        <div key={k} style={{ display: "contents" }}>
+          <dt>{k}</dt>
+          <dd>{v ?? "—"}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** Eligible supervisors and PhD faculty in the field against the rule, as chips. */
+export function SupervisorChips({ d }: { d: AppDetail }) {
+  if (!d.pg) return null;
+  const ok1 = d.pg.eligible >= d.pg.required;
+  const ok2 = d.pg.phdInField >= d.pg.rule.minPhdFacultyInField;
+  return (
+    <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }} data-testid="supervisor-chips">
+      <Tag color={ok1 ? "green" : "red"} style={{ marginInlineEnd: 0 }}>
+        Eligible supervisors {d.pg.eligible}/{d.pg.required}
+      </Tag>
+      <Tag color={ok2 ? "green" : "red"} style={{ marginInlineEnd: 0 }}>
+        PhD in {d.app.field || "the field"} {d.pg.phdInField}/{d.pg.rule.minPhdFacultyInField}
+      </Tag>
+    </span>
+  );
+}
+
+/**
+ * Supervisors linked to a postgraduate case by Faculty ID, with what the institution declared and the result
+ * of the rule. `edit` renders the declaration cells (institution drafts); `actions` adds per-row controls.
+ */
+export function SupervisorTable({ d, edit, actions }: { d: AppDetail; edit?: (r: FacultyRow) => React.ReactNode; actions?: (r: FacultyRow) => React.ReactNode }) {
+  const rows = d.faculty;
+  return (
+    <Table
+      size="small"
+      rowKey="facultyId"
+      pagination={false}
+      dataSource={rows}
+      className="supervisor-table"
+      scroll={{ x: true }}
+      locale={{ emptyText: "No supervisors linked yet. Find each one by Faculty ID, CNIC or name." }}
+      columns={[
+        { title: "Faculty ID", dataIndex: "pcpId", width: 130, render: (v) => <span className="mono" style={{ fontSize: 12.5 }}>{v}</span> },
+        { title: "Supervisor", render: (_, r) => <span>{r.fullName}<div className="faint" style={{ fontSize: 12 }}>{r.designation} · {r.qualification} {r.specialization}</div></span> },
+        edit
+          ? { title: "Declared", render: (_: unknown, r: FacultyRow) => edit(r) }
+          : {
+              title: "Declared",
+              render: (_: unknown, r: FacultyRow) => (
+                <span style={{ fontSize: 12.5 }}>
+                  {r.details?.publications ?? 0} publication{r.details?.publications === 1 ? "" : "s"}
+                  {r.details?.hecApproved ? " · HEC-approved" : ""}
+                  <div className="faint">
+                    {r.details?.currentStudents ?? 0} current student{r.details?.currentStudents === 1 ? "" : "s"}
+                  </div>
+                </span>
+              ),
+            },
+        {
+          title: "Rule",
+          render: (_: unknown, r: FacultyRow) => {
+            const j = d.pg?.judged.find((x) => x.facultyId === r.facultyId);
+            if (!r.activeHere) return <span style={{ color: "#b4141f", fontSize: 12.5 }}><WarningFilled /> Not active here</span>;
+            if (r.openFlag || r.verificationStatus === "FLAGGED") return <span style={{ color: "#b4141f", fontSize: 12.5 }}><WarningFilled /> Possible duplicate</span>;
+            return j?.eligible ? (
+              <span className="supervisor-eligible" style={{ fontSize: 12.5 }}>
+                <StatusDot tone="good">Eligible</StatusDot>
+                {j.inField ? null : <div className="faint">Outside {d.app.field}</div>}
+              </span>
+            ) : (
+              <span className="supervisor-ineligible" style={{ color: "#b4141f", fontSize: 12.5 }}>
+                <WarningFilled /> {j?.reasons.join("; ")}
+              </span>
+            );
+          },
+        },
+        ...(actions ? [{ title: "", width: 60, align: "right" as const, render: (_: unknown, r: FacultyRow) => actions(r) }] : []),
+      ]}
+    />
+  );
+}
+
+type InspectionRow = AppDetail["inspections"][number];
+
+/** The inspection score: total, percentage and pass or fail against the rule's pass mark. */
+export function ScoreBadge({ s, compact }: { s: InspectionRow["score"]; compact?: boolean }) {
+  if (!s) return null;
+  return (
+    <span data-testid="inspection-score" style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <b className="tnum" style={{ fontSize: compact ? 13 : 15 }}>
+        {s.total} / {s.max}
+      </b>
+      <span className="tnum" style={{ fontSize: compact ? 12.5 : 13 }}>{s.percent}%</span>
+      <StatusDot tone={s.passed ? "good" : "bad"}>{s.passed ? `Pass (mark ${s.passPercent}%)` : `Below the pass mark of ${s.passPercent}%`}</StatusDot>
+    </span>
+  );
+}
+
+/** Columns for a submitted checklist: result, score (with weight) and remarks. */
+export function checklistColumns(maxScore: number) {
+  return [
+    { title: "Criterion", dataIndex: "criterion" },
+    { title: "Result", dataIndex: "result", render: (v: string) => <Pill value={v} /> },
+    {
+      title: "Score",
+      dataIndex: "score",
+      width: 96,
+      render: (v: number | null | undefined, r: { weight?: number; result: string }) =>
+        r.result === "NA" || v === null || v === undefined ? (
+          <span className="faint">—</span>
+        ) : (
+          <span className="tnum">
+            {v}/{maxScore}
+            {r.weight && r.weight !== 1 ? <span className="faint"> ×{r.weight}</span> : null}
+          </span>
+        ),
+    },
+    { title: "Remarks", dataIndex: "remarks", render: (v: string) => v || <span className="faint">—</span> },
+  ];
+}
+
 export function DataDescriptions({ d }: { d: AppDetail }) {
+  if (d.pg) return <PgDataDescriptions d={d} />;
   const data = d.app.data;
   const rows: [string, React.ReactNode][] = [
     ["Campus", d.app.campusName],

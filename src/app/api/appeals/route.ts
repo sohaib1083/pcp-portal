@@ -6,7 +6,7 @@ import { nextModuleRef, notifyOn } from "@/lib/council";
 import { appealBlocks } from "@/lib/council-data";
 import { fileDocument } from "@/lib/letters";
 import { can } from "@/lib/roles";
-import { getUser } from "@/lib/session";
+import { getActiveUser } from "@/lib/session";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const OPEN = ["FILED", "UNDER_REVIEW", "ON_AGENDA"];
@@ -16,7 +16,7 @@ const OPEN = ["FILED", "UNDER_REVIEW", "ON_AGENDA"];
  * Multipart, so evidence up to 10 MB works. Head of institution or principal only, own institution only.
  */
 export async function POST(req: Request) {
-  const user = await getUser();
+  const user = await getActiveUser();
   if (!user || user.kind !== "institution" || !user.institutionCode) return NextResponse.json({ error: "Sign in as an institution user." }, { status: 403 });
   if (!can(user.roles, "inst.appeal.file")) return NextResponse.json({ error: "Only the head of institution or the principal can file an appeal." }, { status: 403 });
   const inst = await db.query.institutions.findFirst({ where: eq(schema.institutions.code, user.institutionCode) });

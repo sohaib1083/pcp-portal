@@ -4,16 +4,17 @@ import { redirect } from "next/navigation";
 import { and, asc, desc, eq, inArray, ne, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import type { SelfAssessmentItem } from "@/db/schema";
+import type { SelfAssessmentItem, SupervisorDetails } from "@/db/schema";
 import { confirmPayment, createChallan } from "@/lib/payments";
 import { requireOtp } from "@/lib/otp";
 import { audit } from "@/lib/audit";
 import { normalizeName } from "@/lib/names";
-import { feeFor, getRule, refreshChecks, runChecks, subjectRequirements, suggestAssignment, type ProgramRule } from "@/lib/rules";
+import { inField, pgTypeRule, supervisorEligibility, supervisorsRequired } from "@/lib/pg";
+import { feeFor, getPgRule, getRule, refreshChecks, runChecks, subjectRequirements, suggestAssignment, type ProgramRule } from "@/lib/rules";
 import { requireInstitution } from "@/lib/session";
 import { clockFor } from "@/lib/sla";
 import { nextRef, notify } from "@/lib/util";
-import { CLOSED_STATUSES, KIND_LABELS, PROGRAM_LABELS, SELF_ASSESSMENT_CRITERIA, assertTransition } from "@/lib/workflow";
+import { CLOSED_STATUSES, KIND_LABELS, SELF_ASSESSMENT_CRITERIA, SUPERVISOR_SUBJECT, assertTransition, isPg, programmeName, refPrefix } from "@/lib/workflow";
 import type { ActionResult } from "./faculty";
 
 async function loadOwnApp(ref: string, institutionId: number) {
@@ -58,44 +59,88 @@ export async function createApplication(programType: "PHARMD" | "TECH") {
 }
 
 /**
+ * A postgraduate programme (RFP 4.1.10): the programme type is asked first (MS/MPhil or PhD), then the field
+ * of study from the reference list. The first PCP case is the accreditation: the HEC issues the programme's
+ * NOC, which the institution uploads. Then the PG proforma and the supervisors, linked by Faculty ID.
+ */
+export async function createPgApplication(programType: "MPHIL" | "PHD", field: string): Promise<ActionResult> {
+  const { user, inst } = await requireInstitution("inst.app.edit");
+  if (!isPg(programType)) return { ok: false, message: "Choose MS/MPhil or PhD first.", level: "error" };
+  const { value: rule } = await getPgRule();
+  if (!rule.fields.includes(field)) return { ok: false, message: "Pick the field of study from the list.", level: "error" };
+  const name = programmeName(programType, field);
+  const mine = and(eq(schema.applications.institutionId, inst.id), eq(schema.applications.programType, programType), eq(schema.applications.field, field));
+  const open = await db.query.applications.findFirst({ where: and(mine, notInArray(schema.applications.status, CLOSED_STATUSES)) });
+  if (open) redirect(`/institution/applications/${open.ref}`);
+  const program = await db.query.programs.findFirst({ where: and(eq(schema.programs.institutionId, inst.id), eq(schema.programs.type, programType), eq(schema.programs.field, field)) });
+  if (program?.accreditationStatus === "VALID") return { ok: false, message: `${name} is accredited until ${program.accreditationValidUntil}. Start its renewal from the programme card.`, level: "error" };
+  const fee = await feeFor("ACCREDITATION", programType);
+  const campuses = await db.select().from(schema.campuses).where(eq(schema.campuses.institutionId, inst.id));
+  const only = campuses.length === 1 ? campuses[0] : null;
+  const ref = await db.transaction(async (tx) => {
+    const r = await nextRef(tx, refPrefix("ACCREDITATION", programType), "applications", 4);
+    const [app] = await tx
+      .insert(schema.applications)
+      .values({ ref: r, institutionId: inst.id, kind: "ACCREDITATION", programType, field, status: "DRAFT", data: only ? { campus: only.name } : {}, campusId: only?.id ?? null, feeAmount: fee, selfAssessment: [], createdBy: user.username })
+      .returning();
+    await tx.insert(schema.applicationEvents).values({ applicationId: app.id, fromStatus: null, toStatus: "DRAFT", actor: user.username, actorRole: user.role, note: `${name} accreditation started` });
+    if (!program) await tx.insert(schema.programs).values({ institutionId: inst.id, type: programType, field, nocStatus: "NONE" });
+    await audit(tx, { actor: user.username, action: "application.created", entity: "application", entityId: r, details: { programType, field, kind: "ACCREDITATION" } });
+    return r;
+  });
+  await refreshChecks(ref);
+  redirect(`/institution/applications/${ref}`);
+}
+
+/** The postgraduate proforma fields a renewal is prepared from. */
+const PG_CARRY = ["proposedIntake", "durationYears", "courseworkCredits", "thesisRequired", "researchLabs", "researchLabList", "equipment", "libraryJournals", "hecDigitalLibrary", "hecNocNumber", "hecNocDate"] as const;
+
+/**
  * Accreditation or renewal from a programme card (guide section 5). The file is prepared from existing
  * records: the approved intake, the faculty, labs and library of the last case. The institution updates
- * only what changed and files a self-assessment.
+ * only what changed and files a self-assessment. A postgraduate renewal carries the PG proforma and the
+ * supervisors forward instead.
  */
-export async function startProgrammeCase(programType: "PHARMD" | "TECH", kind: "ACCREDITATION" | "RENEWAL") {
+export async function startProgrammeCase(programType: string, kind: "ACCREDITATION" | "RENEWAL", field = "") {
+  const pg = isPg(programType);
+  if (pg && kind === "ACCREDITATION") return createPgApplication(programType, field);
   const { user, inst } = await requireInstitution("inst.app.edit");
-  const program = await db.query.programs.findFirst({ where: and(eq(schema.programs.institutionId, inst.id), eq(schema.programs.type, programType)) });
-  const label = PROGRAM_LABELS[programType];
-  if (!program || program.nocStatus !== "APPROVED") return { ok: false, message: `${label} has no approved NOC yet. Accreditation follows the NOC.`, level: "error" } as ActionResult;
+  if (!pg && programType !== "PHARMD" && programType !== "TECH") return { ok: false, message: "Unknown programme.", level: "error" } as ActionResult;
+  const program = await db.query.programs.findFirst({ where: and(eq(schema.programs.institutionId, inst.id), eq(schema.programs.type, programType), eq(schema.programs.field, pg ? field : "")) });
+  const label = programmeName(programType, pg ? field : "");
+  if (!program) return { ok: false, message: `${label} is not on your profile.`, level: "error" } as ActionResult;
+  if (!pg && program.nocStatus !== "APPROVED") return { ok: false, message: `${label} has no approved NOC yet. Accreditation follows the NOC.`, level: "error" } as ActionResult;
   if (kind === "RENEWAL" && !program.accreditationValidUntil) return { ok: false, message: `${label} has no accreditation to renew. Apply for accreditation instead.`, level: "error" } as ActionResult;
+  const same = and(eq(schema.applications.institutionId, inst.id), eq(schema.applications.programType, programType), eq(schema.applications.field, program.field));
   const open = await db.query.applications.findFirst({
-    where: and(eq(schema.applications.institutionId, inst.id), eq(schema.applications.programType, programType), inArray(schema.applications.kind, ["ACCREDITATION", "RENEWAL"]), notInArray(schema.applications.status, CLOSED_STATUSES)),
+    where: and(same, inArray(schema.applications.kind, ["ACCREDITATION", "RENEWAL"]), notInArray(schema.applications.status, CLOSED_STATUSES)),
   });
   if (open) redirect(`/institution/applications/${open.ref}`);
 
   const last = await db.query.applications.findFirst({
-    where: and(eq(schema.applications.institutionId, inst.id), eq(schema.applications.programType, programType), ne(schema.applications.status, "DRAFT")),
+    where: and(same, ne(schema.applications.status, "DRAFT")),
     orderBy: desc(schema.applications.id),
   });
   const lastCert = await db.query.applications.findFirst({
-    where: and(eq(schema.applications.institutionId, inst.id), eq(schema.applications.programType, programType), inArray(schema.applications.kind, ["ACCREDITATION", "RENEWAL"]), eq(schema.applications.status, "NOC_ISSUED")),
+    where: and(same, inArray(schema.applications.kind, ["ACCREDITATION", "RENEWAL"]), eq(schema.applications.status, "NOC_ISSUED")),
     orderBy: desc(schema.applications.id),
   });
   const campuses = await db.select().from(schema.campuses).where(eq(schema.campuses.institutionId, inst.id)).orderBy(desc(schema.campuses.isMain));
   const campus = campuses.find((c) => c.id === last?.campusId) ?? campuses[0];
   const ld = last?.data ?? {};
-  const data = {
-    campus: campus?.name,
-    proposedIntake: program.approvedIntake || ld.proposedIntake,
-    classrooms: ld.classrooms,
-    labs: ld.labs,
-    labList: ld.labList,
-    libraryBooks: ld.libraryBooks,
-    libraryJournals: ld.libraryJournals,
-    buildingAreaSqft: ld.buildingAreaSqft,
-  };
+  const data = pg
+    ? { campus: campus?.name, ...Object.fromEntries(PG_CARRY.map((k) => [k, ld[k]])), proposedIntake: program.approvedIntake || ld.proposedIntake }
+    : {
+        campus: campus?.name,
+        proposedIntake: program.approvedIntake || ld.proposedIntake,
+        classrooms: ld.classrooms,
+        labs: ld.labs,
+        labList: ld.labList,
+        libraryBooks: ld.libraryBooks,
+        libraryJournals: ld.libraryJournals,
+        buildingAreaSqft: ld.buildingAreaSqft,
+      };
   const fee = await feeFor(kind, programType);
-  const { value: rule } = await getRule<ProgramRule>(`noc.${programType}`);
 
   // Faculty: the last case's links that are still active here, else the programme's own faculty.
   const active = await db
@@ -104,16 +149,19 @@ export async function startProgrammeCase(programType: "PHARMD" | "TECH", kind: "
     .innerJoin(schema.faculty, eq(schema.faculty.id, schema.facultyLinks.facultyId))
     .where(and(eq(schema.facultyLinks.institutionId, inst.id), eq(schema.facultyLinks.status, "ACTIVE"), ne(schema.faculty.verificationStatus, "REJECTED")));
   const prev = last ? await db.select().from(schema.applicationFaculty).where(eq(schema.applicationFaculty.applicationId, last.id)) : [];
-  let links = prev.filter((p) => active.some((a) => a.id === p.facultyId)).map((p) => ({ facultyId: p.facultyId, subject: p.subject }));
-  if (!links.length) links = suggestAssignment(active.filter((a) => a.programType === programType), subjectRequirements(rule, Number(data.proposedIntake ?? 0)));
+  let links: { facultyId: number; subject: string; details?: SupervisorDetails | null }[] = prev.filter((p) => active.some((a) => a.id === p.facultyId)).map((p) => ({ facultyId: p.facultyId, subject: p.subject, details: p.details }));
+  if (!links.length && !pg) {
+    const { value: rule } = await getRule<ProgramRule>(`noc.${programType}`);
+    links = suggestAssignment(active.filter((a) => a.programType === programType), subjectRequirements(rule, Number(data.proposedIntake ?? 0)));
+  }
 
   const ref = await db.transaction(async (tx) => {
-    const r = await nextRef(tx, kind === "RENEWAL" ? "RNW" : "ACC", "applications", 4);
+    const r = await nextRef(tx, refPrefix(kind, programType), "applications", 4);
     const [app] = await tx
       .insert(schema.applications)
-      .values({ ref: r, institutionId: inst.id, kind, programType, status: "DRAFT", data, campusId: campus?.id ?? null, feeAmount: fee, renewalOf: lastCert?.certificateNo ?? program.nocNumber, selfAssessment: [], createdBy: user.username })
+      .values({ ref: r, institutionId: inst.id, kind, programType, field: program.field, status: "DRAFT", data, campusId: campus?.id ?? null, feeAmount: fee, renewalOf: lastCert?.certificateNo ?? program.nocNumber, selfAssessment: [], createdBy: user.username })
       .returning();
-    if (links.length) await tx.insert(schema.applicationFaculty).values(links.map((l) => ({ applicationId: app.id, facultyId: l.facultyId, subject: l.subject, createdBy: user.username })));
+    if (links.length) await tx.insert(schema.applicationFaculty).values(links.map((l) => ({ applicationId: app.id, facultyId: l.facultyId, subject: l.subject, details: l.details ?? null, createdBy: user.username })));
     await tx.insert(schema.applicationEvents).values({
       applicationId: app.id,
       fromStatus: null,
@@ -140,6 +188,16 @@ const DataInput = z.object({
   buildingAreaSqft: z.coerce.number().int().min(0).optional(),
   notes: z.string().optional(),
   complianceConfirmed: z.boolean().optional(),
+  // Postgraduate proforma
+  durationYears: z.coerce.number().min(0).max(10).optional(),
+  courseworkCredits: z.coerce.number().int().min(0).max(200).optional(),
+  thesisRequired: z.boolean().optional(),
+  researchLabs: z.coerce.number().int().min(0).optional(),
+  researchLabList: z.string().max(1000).optional(),
+  equipment: z.string().max(2000).optional(),
+  hecDigitalLibrary: z.boolean().optional(),
+  hecNocNumber: z.string().trim().max(60).optional(),
+  hecNocDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter the HEC NOC date").optional().or(z.literal("")),
 });
 
 export async function saveApplication(ref: string, raw: unknown): Promise<ActionResult> {
@@ -148,7 +206,7 @@ export async function saveApplication(ref: string, raw: unknown): Promise<Action
   const locked = draftOnly(app.status);
   if (locked) return locked;
   const parsed = DataInput.safeParse(raw);
-  if (!parsed.success) return { ok: false, message: "Check the numbers you entered.", level: "error" };
+  if (!parsed.success) return { ok: false, message: parsed.error.issues.find((i) => i.message.startsWith("Enter"))?.message ?? "Check the numbers you entered.", level: "error" };
   const { campusId, ...rest } = parsed.data;
   let campus: typeof schema.campuses.$inferSelect | undefined;
   if (campusId) {
@@ -205,7 +263,11 @@ export async function searchCaseFaculty(ref: string, q: string): Promise<Faculty
     .from(schema.facultyLinks)
     .innerJoin(schema.faculty, eq(schema.faculty.id, schema.facultyLinks.facultyId))
     .where(and(eq(schema.facultyLinks.institutionId, inst.id), eq(schema.facultyLinks.status, "ACTIVE"), ne(schema.faculty.verificationStatus, "REJECTED"), cond))
-    .orderBy(sql`case when ${schema.facultyLinks.programType} = ${app.programType} then 0 else 1 end`, asc(schema.faculty.pcpId))
+    .orderBy(
+      // A postgraduate case looks for supervisors: PhD holders first. Otherwise the programme's own teachers first.
+      isPg(app.programType) ? sql`case when ${schema.faculty.qualification} = 'PhD' then 0 else 1 end` : sql`case when ${schema.facultyLinks.programType} = ${app.programType} then 0 else 1 end`,
+      asc(schema.faculty.pcpId),
+    )
     .limit(25);
   return rows.map((r) => ({ ...r, cnic: maskCnic(r.cnic) }));
 }
@@ -215,22 +277,80 @@ export async function linkCaseFaculty(ref: string, facultyId: number, subject: s
   const app = await loadOwnApp(ref, inst.id);
   const locked = draftOnly(app.status);
   if (locked) return locked;
-  const { value: rule } = await getRule<ProgramRule>(`noc.${app.programType}`);
-  if (!(rule.subjects ?? []).some((s) => s.name === subject)) return { ok: false, message: "Pick a subject from the list.", level: "error" };
+  const pg = isPg(app.programType);
+  if (pg) {
+    if (subject !== SUPERVISOR_SUBJECT) return { ok: false, message: "On a postgraduate case, faculty are linked as supervisors.", level: "error" };
+  } else {
+    const { value: rule } = await getRule<ProgramRule>(`noc.${app.programType}`);
+    if (!(rule.subjects ?? []).some((s) => s.name === subject)) return { ok: false, message: "Pick a subject from the list.", level: "error" };
+  }
   const link = await db.query.facultyLinks.findFirst({ where: and(eq(schema.facultyLinks.facultyId, facultyId), eq(schema.facultyLinks.institutionId, inst.id), eq(schema.facultyLinks.status, "ACTIVE")) });
   const fac = await db.query.faculty.findFirst({ where: eq(schema.faculty.id, facultyId) });
   if (!link || !fac) return { ok: false, message: "That Faculty ID is not on your active faculty list. Add the person under Faculty first.", level: "error" };
+  // A supervisor's publications and HEC status, as last declared on any of this institution's cases, start the line.
+  const declared = pg
+    ? (
+        await db
+          .select({ details: schema.applicationFaculty.details, ref: schema.applications.ref })
+          .from(schema.applicationFaculty)
+          .innerJoin(schema.applications, eq(schema.applications.id, schema.applicationFaculty.applicationId))
+          .where(and(eq(schema.applicationFaculty.facultyId, facultyId), eq(schema.applications.institutionId, inst.id), ne(schema.applications.id, app.id), sql`${schema.applicationFaculty.details} is not null`))
+          .orderBy(desc(schema.applicationFaculty.id))
+          .limit(1)
+      )[0]
+    : undefined;
+  const details: SupervisorDetails | null = pg ? { publications: 0, hecApproved: false, currentStudents: 0, ...(declared?.details ?? {}) } : null;
   await db.transaction(async (tx) => {
     await tx
       .insert(schema.applicationFaculty)
-      .values({ applicationId: app.id, facultyId, subject, createdBy: user.username })
+      .values({ applicationId: app.id, facultyId, subject, details, createdBy: user.username })
       .onConflictDoUpdate({ target: [schema.applicationFaculty.applicationId, schema.applicationFaculty.facultyId], set: { subject } });
-    await audit(tx, { actor: user.username, action: "application.faculty.linked", entity: "application", entityId: ref, details: { faculty: fac.pcpId, subject } });
+    await audit(tx, { actor: user.username, action: "application.faculty.linked", entity: "application", entityId: ref, details: { faculty: fac.pcpId, subject, ...(declared ? { declaredOn: declared.ref } : {}) } });
   });
   const checks = await refreshChecks(ref);
   refresh(ref);
+  if (pg) {
+    const line = checks.find((c) => c.key === "supervisors");
+    const own = checks.find((c) => c.key === "supervisor_eligibility" && !c.ok && c.detail.includes(fac.pcpId));
+    return {
+      ok: true,
+      message: `${fac.fullName} (${fac.pcpId}) linked as a supervisor${declared ? ` with the details declared on ${declared.ref}` : ""}. ${own ? "Enter the publications or HEC-approved status next to the name." : ""} ${line?.detail ?? ""}`.replace(/\s+/g, " ").trim(),
+      level: own || !line?.ok ? "warning" : "success",
+    };
+  }
   const line = checks.find((c) => c.key === `subject:${subject}`);
   return { ok: true, message: `${fac.fullName} (${fac.pcpId}) linked to ${subject}. ${line?.detail ?? ""}`.trim(), level: "success" };
+}
+
+const SupervisorInput = z.object({
+  publications: z.coerce.number().int("Publications must be a whole number").min(0).max(1000),
+  hecApproved: z.boolean(),
+  currentStudents: z.coerce.number().int("Students must be a whole number").min(0).max(100),
+});
+
+/** The institution declares a supervisor's publications, HEC-approved status and current students (checked by PCP). */
+export async function saveSupervisorDetails(ref: string, facultyId: number, raw: unknown): Promise<ActionResult> {
+  const { user, inst } = await requireInstitution("inst.app.edit");
+  const app = await loadOwnApp(ref, inst.id);
+  const locked = draftOnly(app.status);
+  if (locked) return locked;
+  if (!isPg(app.programType)) return { ok: false, message: "Supervisors are declared on postgraduate cases only.", level: "error" };
+  const parsed = SupervisorInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Check the numbers you entered.", level: "error" };
+  const row = await db.query.applicationFaculty.findFirst({ where: and(eq(schema.applicationFaculty.applicationId, app.id), eq(schema.applicationFaculty.facultyId, facultyId)) });
+  const fac = await db.query.faculty.findFirst({ where: eq(schema.faculty.id, facultyId) });
+  if (!row || !fac) return { ok: false, message: "Link the supervisor by Faculty ID first.", level: "error" };
+  await db.transaction(async (tx) => {
+    await tx.update(schema.applicationFaculty).set({ details: parsed.data }).where(eq(schema.applicationFaculty.id, row.id));
+    await audit(tx, { actor: user.username, action: "application.supervisor.declared", entity: "application", entityId: ref, details: { faculty: fac.pcpId, ...parsed.data } });
+  });
+  await refreshChecks(ref);
+  refresh(ref);
+  const { value: rule } = await getPgRule();
+  const e = supervisorEligibility({ ...fac, details: parsed.data }, app.programType, pgTypeRule(rule, app.programType));
+  return e.eligible
+    ? { ok: true, message: `${fac.fullName} is an eligible supervisor: ${e.summary}.`, level: "success" }
+    : { ok: true, message: `Saved. ${fac.fullName} ${e.reasons.join("; ")}.`, level: "warning" };
 }
 
 export async function unlinkCaseFaculty(ref: string, facultyId: number): Promise<ActionResult> {
@@ -254,6 +374,7 @@ export async function autoLinkCaseFaculty(ref: string): Promise<ActionResult> {
   const app = await loadOwnApp(ref, inst.id);
   const locked = draftOnly(app.status);
   if (locked) return locked;
+  if (isPg(app.programType)) return autoLinkSupervisors(app, user.username);
   const { value: rule } = await getRule<ProgramRule>(`noc.${app.programType}`);
   const have = await db.select().from(schema.applicationFaculty).where(eq(schema.applicationFaculty.applicationId, app.id));
   const pool = await db
@@ -274,6 +395,30 @@ export async function autoLinkCaseFaculty(ref: string): Promise<ActionResult> {
   return { ok: true, message: `${add.length} teachers linked by Faculty ID.${short.length ? ` ${short.map((c) => c.detail).join(" ")}` : ""}`, level: short.length ? "warning" : "success" };
 }
 
+/** Demo shortcut for a postgraduate case: link the institution's PhD faculty in the field as supervisors. */
+async function autoLinkSupervisors(app: typeof schema.applications.$inferSelect, username: string): Promise<ActionResult> {
+  const { value: rule } = await getPgRule();
+  const r = pgTypeRule(rule, app.programType);
+  const have = await db.select().from(schema.applicationFaculty).where(eq(schema.applicationFaculty.applicationId, app.id));
+  const pool = await db
+    .select({ id: schema.faculty.id, specialization: schema.faculty.specialization, designation: schema.faculty.designation })
+    .from(schema.facultyLinks)
+    .innerJoin(schema.faculty, eq(schema.faculty.id, schema.facultyLinks.facultyId))
+    .where(and(eq(schema.facultyLinks.institutionId, app.institutionId), eq(schema.facultyLinks.status, "ACTIVE"), eq(schema.faculty.qualification, "PhD"), inArray(schema.faculty.verificationStatus, ["VERIFIED", "PENDING"])))
+    .orderBy(asc(schema.faculty.pcpId));
+  const want = Math.max(supervisorsRequired(r, Number(app.data?.proposedIntake ?? 0)), r.minPhdFacultyInField);
+  const add = pool.filter((p) => !have.some((h) => h.facultyId === p.id) && inField(rule, app.field, p.specialization)).slice(0, Math.max(0, want - have.length));
+  if (!add.length) return { ok: true, message: `No more PhD faculty in ${app.field} on your active list. Add them under Faculty first.`, level: "warning" };
+  await db.transaction(async (tx) => {
+    await tx.insert(schema.applicationFaculty).values(add.map((a) => ({ applicationId: app.id, facultyId: a.id, subject: SUPERVISOR_SUBJECT, details: { publications: 0, hecApproved: false, currentStudents: 0 }, createdBy: username })));
+    await audit(tx, { actor: username, action: "application.faculty.linked", entity: "application", entityId: app.ref, details: { count: add.length, by: "field", as: SUPERVISOR_SUBJECT } });
+  });
+  const checks = await refreshChecks(app.ref);
+  refresh(app.ref);
+  const short = checks.filter((c) => ["supervisors", "supervisor_eligibility", "phd_in_field"].includes(c.key) && !c.ok);
+  return { ok: true, message: `${add.length} PhD faculty in ${app.field} linked as supervisors.${short.length ? ` ${short.map((c) => c.detail).join(" ")}` : ""}`, level: short.length ? "warning" : "success" };
+}
+
 const SelfInput = z.array(z.object({ criterion: z.string(), rating: z.enum(["MET", "PARTLY", "NOT_MET"]), comment: z.string().default("") }));
 
 export async function saveSelfAssessment(ref: string, raw: unknown): Promise<ActionResult> {
@@ -281,7 +426,7 @@ export async function saveSelfAssessment(ref: string, raw: unknown): Promise<Act
   const app = await loadOwnApp(ref, inst.id);
   const locked = draftOnly(app.status);
   if (locked) return locked;
-  if (app.kind === "NOC") return { ok: false, message: "A NOC case has no self-assessment.", level: "error" };
+  if (app.kind === "NOC" || isPg(app.programType)) return { ok: false, message: app.kind === "NOC" ? "A NOC case has no self-assessment." : "A postgraduate case uses the PG proforma, not the self-assessment.", level: "error" };
   const parsed = SelfInput.safeParse(raw);
   if (!parsed.success) return { ok: false, message: "Rate each criterion as met, partly met or not met.", level: "error" };
   const items: SelfAssessmentItem[] = parsed.data.filter((x) => SELF_ASSESSMENT_CRITERIA.includes(x.criterion));
@@ -306,7 +451,7 @@ export async function generateChallan(ref: string): Promise<ActionResult> {
     return { ok: false, message: `Fix the failing checks before paying: ${failing.map((c) => c.detail).join(" ")}`, level: "error" };
   }
   const pay = await db.transaction(async (tx) => {
-    const p = await createChallan(tx, { institutionId: inst.id, applicationId: app.id, purpose: `${KIND_LABELS[app.kind] ?? app.kind} fee · ${PROGRAM_LABELS[app.programType]} · ${ref}`, amount: app.feeAmount, createdBy: user.username });
+    const p = await createChallan(tx, { institutionId: inst.id, applicationId: app.id, purpose: `${KIND_LABELS[app.kind] ?? app.kind} fee · ${programmeName(app.programType, app.field)} · ${ref}`, amount: app.feeAmount, createdBy: user.username });
     await audit(tx, { actor: user.username, action: "fee.challan.generated", entity: "application", entityId: ref, details: { psid: p.psid, amount: p.amount } });
     return p;
   });
@@ -347,10 +492,10 @@ export async function submitApplication(ref: string): Promise<ActionResult> {
   await db.transaction(async (tx) => {
     await tx.update(schema.applications).set({ status: "SUBMITTED", checks, submittedBy: user.username, submittedAt: new Date(), updatedAt: new Date(), ...clock }).where(eq(schema.applications.id, app.id));
     await tx.insert(schema.applicationEvents).values({ applicationId: app.id, fromStatus: app.status, toStatus: "SUBMITTED", actor: user.username, actorRole: user.role, note: "Submitted with all checks passing and fee paid" });
-    const where = and(eq(schema.programs.institutionId, inst.id), eq(schema.programs.type, app.programType));
+    const where = and(eq(schema.programs.institutionId, inst.id), eq(schema.programs.type, app.programType), eq(schema.programs.field, app.field ?? ""));
     if (app.kind === "NOC") await tx.update(schema.programs).set({ nocStatus: "PENDING" }).where(where);
     else await tx.update(schema.programs).set({ accreditationStatus: sql`case when ${schema.programs.accreditationStatus} in ('NONE','EXPIRED') then 'PENDING' else ${schema.programs.accreditationStatus} end` }).where(where);
-    await notify(tx, "role:pcp_officer", `New application ${ref}`, `${inst.name} submitted a ${PROGRAM_LABELS[app.programType]} ${kind} application.`, `/pcp/applications/${ref}`);
+    await notify(tx, "role:pcp_officer", `New application ${ref}`, `${inst.name} submitted a ${programmeName(app.programType, app.field)} ${kind} application.`, `/pcp/applications/${ref}`);
     await notify(tx, `inst:${inst.code}`, `Application ${ref} received`, `PCP has received your ${kind} application. You will be notified at each step.`, `/institution/applications/${ref}`);
     await audit(tx, { actor: user.username, action: "application.submitted", entity: "application", entityId: ref });
   });

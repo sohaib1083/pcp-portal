@@ -3,7 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
 import { can } from "@/lib/roles";
-import { getUser } from "@/lib/session";
+import { getActiveUser } from "@/lib/session";
 import { DEFAULT_FOLDERS, putFile } from "@/lib/storage";
 import { refreshChecks } from "@/lib/rules";
 
@@ -11,7 +11,7 @@ const MAX_BYTES = 10 * 1024 * 1024;
 
 /** Upload a document into the institution's folder tree. Institution users only, own institution only. */
 export async function POST(req: Request) {
-  const user = await getUser();
+  const user = await getActiveUser();
   if (!user || user.kind !== "institution" || !user.institutionCode) return NextResponse.json({ error: "Not allowed" }, { status: 403 });
   if (!can(user.roles, "inst.documents.upload") && !can(user.roles, "inst.app.edit") && !can(user.roles, "inst.deficiency.respond"))
     return NextResponse.json({ error: "Your role cannot upload documents" }, { status: 403 });

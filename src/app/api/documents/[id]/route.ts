@@ -2,13 +2,13 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
 import { can } from "@/lib/roles";
-import { getUser } from "@/lib/session";
+import { getActiveUser } from "@/lib/session";
 import { getFile } from "@/lib/storage";
 
 /** Every download is permission-checked and logged. Users never get a direct storage link. */
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const user = await getUser();
+  const user = await getActiveUser();
   if (!user) return new Response("Sign in required", { status: 401 });
   const doc = await db.query.documents.findFirst({ where: eq(schema.documents.id, Number(id)) });
   if (!doc) return new Response("Not found", { status: 404 });

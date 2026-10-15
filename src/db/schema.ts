@@ -52,7 +52,8 @@ export const programs = pgTable(
   {
     id: serial("id").primaryKey(),
     institutionId: integer("institution_id").notNull().references(() => institutions.id),
-    type: text("type").notNull(), // PHARMD | TECH
+    type: text("type").notNull(), // PHARMD | TECH | MPHIL | PHD
+    field: text("field").notNull().default(""), // postgraduate field of study ("" for PharmD and Technician)
     nocStatus: text("noc_status").notNull().default("NONE"), // APPROVED | PENDING | NONE | REJECTED
     nocNumber: text("noc_number"),
     approvedIntake: integer("approved_intake").notNull().default(0),
@@ -60,7 +61,8 @@ export const programs = pgTable(
     accreditationValidUntil: date("accreditation_valid_until"),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("programs_inst_type").on(t.institutionId, t.type)],
+  // A postgraduate programme is one per field (PhD Pharmacology and PhD Pharmaceutics are two programmes).
+  (t) => [uniqueIndex("programs_inst_type").on(t.institutionId, t.type, t.field)],
 );
 
 export const accreditationHistory = pgTable("accreditation_history", {
@@ -138,7 +140,8 @@ export const applications = pgTable("applications", {
   ref: text("ref").notNull().unique(), // NOC-2026-0001
   institutionId: integer("institution_id").notNull().references(() => institutions.id),
   kind: text("kind").notNull(), // NOC | ACCREDITATION | RENEWAL
-  programType: text("program_type").notNull(), // PHARMD | TECH
+  programType: text("program_type").notNull(), // PHARMD | TECH | MPHIL | PHD
+  field: text("field").notNull().default(""), // postgraduate field of study ("" for PharmD and Technician)
   status: text("status").notNull().default("DRAFT"),
   data: jsonb("data").$type<ApplicationData>().notNull().default({}),
   checks: jsonb("checks").$type<CheckResult[]>(),
@@ -373,6 +376,16 @@ export type ApplicationData = {
   buildingAreaSqft?: number;
   notes?: string;
   complianceConfirmed?: boolean; // renewal: the institution confirms annual compliance for the current term
+  // Postgraduate proforma (MS/MPhil and PhD, RFP 4.1.10)
+  durationYears?: number;
+  courseworkCredits?: number;
+  thesisRequired?: boolean;
+  researchLabs?: number;
+  researchLabList?: string;
+  equipment?: string;
+  hecDigitalLibrary?: boolean;
+  hecNocNumber?: string;
+  hecNocDate?: string;
 };
 
 export type CheckResult = { key: string; label: string; ok: boolean; detail: string };
@@ -387,6 +400,10 @@ export type ChecklistItem = {
   criterion: string;
   result: "COMPLIANT" | "PARTIAL" | "NON_COMPLIANT" | "NA";
   remarks: string;
+  /** Score entry (RFP 4.1.2): 0 to the rule's maximum, within the band of the result; null for not applicable. */
+  score?: number | null;
+  /** The line's weight from the `inspection.scoring` rule at submission. */
+  weight?: number;
   /** Photos and documents for this line, filed under the case's inspection folder. */
   evidence?: { id: number; name: string }[];
 };
@@ -400,3 +417,5 @@ export * from "./modules/pharmacists";
 export * from "./modules/council";
 export * from "./modules/accounts";
 export * from "./modules/identity";
+export * from "./modules/governance";
+export * from "./modules/people";

@@ -22,7 +22,14 @@ const SERIES = { a: "#0f8a63", b: "#2a78d6" };
 const STATUS = { critical: "#b4141f", bad: "#d03b3b", warn: "#e8a20c", good: "#12a150", fine: "#0f8a63", none: "#aab5b0" };
 const LENGTH: Record<string, number> = { PHARMD: 5, TECH: 2 };
 const prog = (t: string) => PROGRAMME_LABELS[t] ?? t;
-const progShort = (t: string) => (t === "PHARMD" ? "PharmD" : t === "TECH" ? "Tech" : t);
+const progShort = (t: string) => (t === "PHARMD" ? "PharmD" : t === "TECH" ? "Tech" : PROGRAMME_LABELS[t] ?? t);
+const isPgType = (t: string) => t === "MPHIL" || t === "PHD";
+/**
+ * Does a programme row count as offered? PharmD and Technician go by their PCP NOC; a postgraduate programme
+ * (one per field) by its accreditation, because the HEC issues its NOC (RFP 4.1.10).
+ */
+const offered = (x: Prog, t: string, statuses: string[]) =>
+  (t === "PG" ? isPgType(x.type) : x.type === t) && (isPgType(x.type) ? (statuses.includes("PENDING") ? ["VALID", "PENDING"] : ["VALID"]).includes(x.accreditationStatus) : statuses.includes(x.nocStatus));
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const daysBetween = (from: string, to: string) => Math.round((new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86400000);
 const MAX_DRILL = 500;
@@ -49,7 +56,7 @@ function orderProvinces(names: string[]) {
 
 async function institutionsReport(f: ReportFilters): Promise<Report> {
   const { progs, inScope } = await registry(f);
-  const has = (i: Inst, t: string, statuses: string[]) => progs.some((p) => p.institutionId === i.id && p.type === t && statuses.includes(p.nocStatus));
+  const has = (i: Inst, t: string, statuses: string[]) => progs.some((p) => p.institutionId === i.id && offered(p, t, statuses));
   const list = inScope.filter((i) => (!f.programme || has(i, f.programme, ["APPROVED", "PENDING"])) && (!f.year || !i.establishedYear || i.establishedYear <= f.year));
   const provinces = orderProvinces(list.map((i) => i.province));
   const d = (label: string, extra: Record<string, string | undefined>): Drill => ({ kind: "institutions", label, params: { ...scope(f), ...extra } });
@@ -63,6 +70,7 @@ async function institutionsReport(f: ReportFilters): Promise<Report> {
       total: xs.length,
       pharmd: xs.filter((i) => has(i, "PHARMD", ["APPROVED"])).length,
       tech: xs.filter((i) => has(i, "TECH", ["APPROVED"])).length,
+      pg: xs.filter((i) => has(i, "PG", ["APPROVED"])).length,
     },
     drill: {
       public: d(`Public institutions${province ? ` in ${province}` : ""}`, { province, sector: "Public" }),
@@ -70,10 +78,11 @@ async function institutionsReport(f: ReportFilters): Promise<Report> {
       total: d(`Institutions${province ? ` in ${province}` : ""}`, { province }),
       pharmd: d(`Institutions with an approved PharmD NOC${province ? ` in ${province}` : ""}`, { province, approved: "PHARMD" }),
       tech: d(`Institutions with an approved Pharmacy Technician NOC${province ? ` in ${province}` : ""}`, { province, approved: "TECH" }),
+      pg: d(`Institutions with an accredited MS/MPhil or PhD programme${province ? ` in ${province}` : ""}`, { province, approved: "PG" }),
     },
   });
   const rows = provinces.map((p) => rowFor(p, p, list.filter((i) => i.province === p), p));
-  if (rows.length) rows.push(rowFor("total", "All provinces", list, f.province, true));
+  if (rows.length) rows.push(rowFor("total", f.province ? "Total" : "All provinces", list, f.province, true));
   return {
     id: "institutions",
     title: "Institutions by province and sector",
@@ -86,6 +95,7 @@ async function institutionsReport(f: ReportFilters): Promise<Report> {
       { key: "total", title: "Total", type: "int" },
       { key: "pharmd", title: "PharmD NOC approved", type: "int" },
       { key: "tech", title: "Technician NOC approved", type: "int" },
+      { key: "pg", title: "MS/MPhil or PhD accredited", type: "int" },
     ],
     rows,
     chart: {
@@ -102,7 +112,7 @@ async function institutionsReport(f: ReportFilters): Promise<Report> {
         })),
     },
     notes: [
-      f.programme ? `Only institutions offering ${prog(f.programme)} (NOC approved or pending).` : "",
+      f.programme ? `Only institutions offering ${prog(f.programme)} (${isPgType(f.programme) ? "accredited or pending" : "NOC approved or pending"}).` : "",
       f.year ? `Institutions established in ${f.year} or earlier.` : "",
     ].filter(Boolean),
   };
@@ -401,15 +411,15 @@ async function validityRows(f: ReportFilters) {
       if (f.year && (!p.accreditationValidUntil || Number(p.accreditationValidUntil.slice(0, 4)) !== f.year)) continue;
       const b = band(p);
       out.push({
-        key: `${i.code}-${p.type}`,
+        key: `${i.code}-${p.type}${p.field ? `-${p.field}` : ""}`,
         _band: b.band,
         flag: b.band === "Expired" || b.band === "Within 90 days" ? "bad" : b.band === "91 to 180 days" ? "warn" : null,
         cells: {
           institution: i.name,
           code: i.code,
           province: i.province,
-          programme: prog(p.type),
-          noc: p.nocStatus.charAt(0) + p.nocStatus.slice(1).toLowerCase(),
+          programme: p.field ? `${prog(p.type)} ${p.field}` : prog(p.type),
+          noc: isPgType(p.type) ? "HEC" : p.nocStatus.charAt(0) + p.nocStatus.slice(1).toLowerCase(),
           nocNumber: p.nocNumber,
           accreditation: p.accreditationStatus.charAt(0) + p.accreditationStatus.slice(1).toLowerCase(),
           validUntil: p.accreditationValidUntil,
@@ -682,9 +692,9 @@ export async function drillList(d: Drill): Promise<DrillResult> {
     const codes = str(p.codes)?.split(",");
     let list = codes ? insts.filter((i) => codes.includes(i.code)) : inScope;
     if (!codes) {
-      if (f.programme) list = list.filter((i) => progs.some((x) => x.institutionId === i.id && x.type === f.programme && ["APPROVED", "PENDING"].includes(x.nocStatus)));
+      if (f.programme) list = list.filter((i) => progs.some((x) => x.institutionId === i.id && offered(x, f.programme!, ["APPROVED", "PENDING"])));
       if (f.year) list = list.filter((i) => !i.establishedYear || i.establishedYear <= f.year!);
-      if (str(p.approved)) list = list.filter((i) => progs.some((x) => x.institutionId === i.id && x.type === p.approved && x.nocStatus === "APPROVED"));
+      if (str(p.approved)) list = list.filter((i) => progs.some((x) => x.institutionId === i.id && offered(x, String(p.approved), ["APPROVED"])));
     }
     return {
       title: d.label,
@@ -703,8 +713,8 @@ export async function drillList(d: Drill): Promise<DrillResult> {
         province: i.province,
         sector: i.sector,
         programmes: progs
-          .filter((x) => x.institutionId === i.id && x.nocStatus !== "NONE")
-          .map((x) => `${progShort(x.type)} ${x.nocStatus.toLowerCase()}`)
+          .filter((x) => x.institutionId === i.id && (x.nocStatus !== "NONE" || isPgType(x.type)))
+          .map((x) => (isPgType(x.type) ? `${progShort(x.type)} ${x.field} ${x.accreditationStatus === "VALID" ? "accredited" : x.accreditationStatus.toLowerCase()}` : `${progShort(x.type)} ${x.nocStatus.toLowerCase()}`))
           .join(", ") || "None",
       })),
     };

@@ -7,6 +7,7 @@ import { isVerifiedLink, thisYear } from "@/lib/registry";
 import { facultyUpdateDue } from "@/lib/registry-shared";
 import { can } from "@/lib/roles";
 import { requireInstitution } from "@/lib/session";
+import { UG_TYPES } from "@/lib/workflow";
 
 const ORDER: Record<string, number> = { REQUESTED: 0, ACTIVE: 1, ENDED: 2, DECLINED: 3, WITHDRAWN: 4 };
 
@@ -45,7 +46,8 @@ export default async function FacultyPage() {
         .from(schema.facultyLinks)
         .where(and(inArray(schema.facultyLinks.facultyId, facultyIds), ne(schema.facultyLinks.institutionId, inst.id), inArray(schema.facultyLinks.status, ["ACTIVE", "ENDED"])))
     : [];
-  const programmes = (await db.select({ type: schema.programs.type }).from(schema.programs).where(eq(schema.programs.institutionId, inst.id))).map((p) => p.type);
+  // Faculty are appointed to the undergraduate programmes; postgraduate supervisors are linked on PG cases instead.
+  const programmes = (await db.select({ type: schema.programs.type }).from(schema.programs).where(and(eq(schema.programs.institutionId, inst.id), inArray(schema.programs.type, [...UG_TYPES])))).map((p) => p.type);
   const confirmations = await db
     .select()
     .from(schema.facultyAnnualConfirmations)

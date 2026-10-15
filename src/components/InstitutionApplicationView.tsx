@@ -2,8 +2,9 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
-import { Alert, App, Button, Card, Checkbox, Col, Form, Input, InputNumber, Radio, Row, Select, Spin, Tag, Typography, Upload } from "antd";
-import { BankOutlined, CheckCircleFilled, CreditCardOutlined, DeleteOutlined, LockOutlined, ScheduleOutlined, SendOutlined, TeamOutlined, UploadOutlined, UserAddOutlined, WarningFilled } from "@ant-design/icons";
+import { Alert, App, Button, Card, Checkbox, Col, DatePicker, Form, Input, InputNumber, Radio, Row, Select, Spin, Tag, Typography, Upload } from "antd";
+import { BankOutlined, CheckCircleFilled, CreditCardOutlined, DeleteOutlined, LockOutlined, SaveOutlined, ScheduleOutlined, SendOutlined, TeamOutlined, UploadOutlined, UserAddOutlined, WarningFilled } from "@ant-design/icons";
+import dayjs from "dayjs";
 import {
   answerDeferral,
   autoLinkCaseFaculty,
@@ -14,6 +15,7 @@ import {
   respondDeficiency,
   saveApplication,
   saveSelfAssessment,
+  saveSupervisorDetails,
   searchCaseFaculty,
   submitApplication,
   unlinkCaseFaculty,
@@ -21,8 +23,8 @@ import {
 } from "@/app/actions/applications";
 import type { AppDetail } from "@/lib/appdetail";
 import { formatPKR } from "@/lib/format";
-import { KIND_LABELS, SELF_ASSESSMENT_CRITERIA } from "@/lib/workflow";
-import { AppHeader, CaseFacultyTable, CertificateCard, ChecksCard, DataDescriptions, DecisionCard, DocumentsCard, MessagesCard, SelfAssessmentTable, SubjectChips, TimelineCard, uploadDocument } from "./AppParts";
+import { KIND_LABELS, SELF_ASSESSMENT_CRITERIA, SUPERVISOR_SUBJECT } from "@/lib/workflow";
+import { AppHeader, CaseFacultyTable, CertificateCard, ChecksCard, DataDescriptions, DecisionCard, DocumentsCard, MessagesCard, SelfAssessmentTable, SubjectChips, SupervisorChips, SupervisorTable, TimelineCard, uploadDocument } from "./AppParts";
 import { Pill, fmtDate, programLabel } from "./common";
 import { FillDemo, SamplePdfButton } from "./demo-helpers";
 import { useOtp } from "./OtpConfirm";
@@ -40,16 +42,35 @@ const DEMO_FORM = {
   buildingAreaSqft: 14000,
 };
 
+/** A postgraduate proforma ready to submit (demo values that pass the PhD and MS/MPhil rules). */
+const DEMO_PG_FORM = {
+  durationYears: 3,
+  courseworkCredits: 24,
+  thesisRequired: true,
+  researchLabs: 3,
+  researchLabList: "Drug delivery research lab, Analytical (HPLC) lab, Cell culture lab",
+  equipment: "HPLC with PDA detector, UV-Vis spectrophotometer, dissolution apparatus, rotary evaporator, CO2 incubator, laminar flow hood",
+  libraryJournals: 24,
+  hecDigitalLibrary: true,
+  hecNocNumber: "HEC/QAA/PG/2026/0417",
+  hecNocDate: "2026-07-14",
+};
+
 /** What the institution still has to do before it can submit, as one checklist. */
 function Readiness({ d }: { d: AppDetail }) {
   const have = new Set(d.documents.filter((x) => !x.deficiencyId).map((x) => x.docType));
   const docs = d.requiredDocs.filter((r) => have.has(r)).length;
   const failing = d.app.checks.filter((c) => !c.ok).length;
   const shortSubjects = d.subjects.filter((s) => s.linked < s.required);
-  const acc = d.app.kind !== "NOC";
+  const acc = d.app.kind !== "NOC" && !d.pg;
+  const supFail = d.app.checks.filter((c) => ["supervisors", "supervisor_eligibility", "phd_in_field"].includes(c.key) && !c.ok).length;
   const items = [
-    { label: "Campus and form", ok: !!d.app.campusId && !!d.app.data.proposedIntake, detail: d.app.campusName ? d.app.campusName : "Pick the campus first", href: "#case-form" },
-    { label: "Faculty by ID", ok: d.faculty.length > 0 && shortSubjects.length === 0, detail: d.faculty.length ? (shortSubjects.length ? `${shortSubjects.length} subject(s) short` : `${d.faculty.length} linked`) : "None linked yet", href: "#case-faculty" },
+    d.pg
+      ? { label: "Campus and PG proforma", ok: !d.app.checks.some((c) => ["fields", "intake", "duration", "coursework", "thesis", "research_labs", "pg_library"].includes(c.key) && !c.ok) && !!d.app.campusId, detail: d.app.campusName ? d.app.campusName : "Pick the campus first", href: "#case-form" }
+      : { label: "Campus and form", ok: !!d.app.campusId && !!d.app.data.proposedIntake, detail: d.app.campusName ? d.app.campusName : "Pick the campus first", href: "#case-form" },
+    d.pg
+      ? { label: "Supervisors by ID", ok: d.faculty.length > 0 && supFail === 0, detail: d.faculty.length ? (supFail ? `${d.pg.eligible} of ${d.pg.required} eligible` : `${d.faculty.length} linked, all eligible`) : "None linked yet", href: "#case-faculty" }
+      : { label: "Faculty by ID", ok: d.faculty.length > 0 && shortSubjects.length === 0, detail: d.faculty.length ? (shortSubjects.length ? `${shortSubjects.length} subject(s) short` : `${d.faculty.length} linked`) : "None linked yet", href: "#case-faculty" },
     ...(acc ? [{ label: "Self-assessment", ok: !d.app.checks.some((c) => c.key === "self_assessment" && !c.ok) && d.app.selfAssessment.length > 0, detail: `${d.app.selfAssessment.length} of ${SELF_ASSESSMENT_CRITERIA.length} rated`, href: "#case-self" }] : []),
     { label: "Documents", ok: d.requiredDocs.length > 0 && docs === d.requiredDocs.length, detail: `${docs} of ${d.requiredDocs.length} attached`, href: "#case-documents" },
     { label: "Automatic checks", ok: d.app.checks.length > 0 && failing === 0, detail: d.app.checks.length ? (failing ? `${failing} failing` : "All passing") : "Not run yet", href: "#case-checks" },
@@ -98,17 +119,20 @@ function FacultyPicker({ d, run, pending }: { d: AppDetail; run: (fn: () => Prom
   const linkedIds = new Set(d.faculty.map((f) => f.facultyId));
   const chosen = options.find((o) => o.id === picked);
   const short = d.subjects.find((s) => s.linked < s.required)?.name;
+  // A postgraduate case links supervisors: there is no subject to choose.
+  const pg = !!d.pg;
+  const subj = pg ? SUPERVISOR_SUBJECT : subject;
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 210px auto", gap: 8, marginBottom: 12 }} className="case-faculty-picker">
+    <div style={{ display: "grid", gridTemplateColumns: pg ? "minmax(0, 1fr) auto" : "minmax(0, 1fr) 210px auto", gap: 8, marginBottom: 12 }} className="case-faculty-picker">
       <Select
         className="case-faculty-search"
         showSearch={{ filterOption: false, onSearch: search }}
-        placeholder="Find by Faculty ID (PCP-FAC-…), CNIC or name"
+        placeholder={pg ? "Find a supervisor by Faculty ID (PCP-FAC-…), CNIC or name" : "Find by Faculty ID (PCP-FAC-…), CNIC or name"}
         value={picked}
         onChange={(v) => {
           setPicked(v);
           const o = options.find((x) => x.id === v);
-          if (!subject) setSubject(d.subjectNames.includes(o?.specialization ?? "") ? o?.specialization : short);
+          if (!subject && !pg) setSubject(d.subjectNames.includes(o?.specialization ?? "") ? o?.specialization : short);
         }}
         notFoundContent={loading ? <Spin size="small" /> : "No active faculty match. Add the person under Faculty first."}
         options={options.map((o) => ({
@@ -126,15 +150,15 @@ function FacultyPicker({ d, run, pending }: { d: AppDetail; run: (fn: () => Prom
           ),
         }))}
       />
-      <Select className="case-subject-select" placeholder="Subject" value={subject} onChange={setSubject} options={d.subjectNames.map((s) => ({ value: s, label: s }))} />
+      {pg ? null : <Select className="case-subject-select" placeholder="Subject" value={subject} onChange={setSubject} options={d.subjectNames.map((s) => ({ value: s, label: s }))} />}
       <Button
         type="primary"
         icon={<UserAddOutlined />}
-        disabled={!picked || !subject}
+        disabled={!picked || !subj}
         loading={pending}
         onClick={() =>
           run(async () => {
-            const r = await linkCaseFaculty(d.app.ref, picked!, subject!);
+            const r = await linkCaseFaculty(d.app.ref, picked!, subj!);
             if (r.ok) {
               setPicked(undefined);
               setSubject(undefined);
@@ -143,7 +167,7 @@ function FacultyPicker({ d, run, pending }: { d: AppDetail; run: (fn: () => Prom
           })
         }
       >
-        Link teacher
+        {pg ? "Link supervisor" : "Link teacher"}
       </Button>
       {chosen ? (
         <div className="faint" style={{ gridColumn: "1 / -1", fontSize: 12 }}>
@@ -151,6 +175,99 @@ function FacultyPicker({ d, run, pending }: { d: AppDetail; run: (fn: () => Prom
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** One supervisor's declaration: publications, HEC-approved status and current students. PCP checks it. */
+function SupervisorDeclare({ d, r, run, pending }: { d: AppDetail; r: AppDetail["faculty"][number]; run: (fn: () => Promise<ActionResult>) => void; pending: boolean }) {
+  const init = { publications: r.details?.publications ?? 0, hecApproved: !!r.details?.hecApproved, currentStudents: r.details?.currentStudents ?? 0 };
+  const [v, setV] = useState(init);
+  const changed = v.publications !== init.publications || v.hecApproved !== init.hecApproved || v.currentStudents !== init.currentStudents;
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }} className="supervisor-declare" data-faculty={r.pcpId}>
+      <InputNumber size="small" min={0} max={1000} value={v.publications} onChange={(x) => setV({ ...v, publications: Number(x ?? 0) })} style={{ width: 70 }} aria-label="Publications" className="sup-publications" />
+      <span className="faint" style={{ fontSize: 12 }}>publications</span>
+      <Checkbox checked={v.hecApproved} onChange={(e) => setV({ ...v, hecApproved: e.target.checked })} className="sup-hec">
+        <span style={{ fontSize: 12.5 }}>HEC-approved</span>
+      </Checkbox>
+      <InputNumber size="small" min={0} max={100} value={v.currentStudents} onChange={(x) => setV({ ...v, currentStudents: Number(x ?? 0) })} style={{ width: 60 }} aria-label="Current students" className="sup-students" />
+      <span className="faint" style={{ fontSize: 12 }}>students now</span>
+      <Button size="small" type={changed ? "primary" : "default"} icon={<SaveOutlined />} disabled={!changed} loading={pending} onClick={() => run(() => saveSupervisorDetails(d.app.ref, r.facultyId, v))}>
+        Save
+      </Button>
+    </div>
+  );
+}
+
+/** The postgraduate proforma (RFP 4.1.10): a separate PCP form for MS/MPhil and PhD programmes. */
+function PgProformaForm({ d, run, pending, canEdit }: { d: AppDetail; run: (fn: () => Promise<ActionResult>) => void; pending: boolean; canEdit: boolean }) {
+  const [form] = Form.useForm();
+  const r = d.pg!.rule;
+  const demoCampus = d.campuses.find((c) => c.isMain) ?? d.campuses[0];
+  if (!canEdit)
+    return (
+      <>
+        <Alert type="info" showIcon style={{ marginBottom: 12 }} title="Your role can view this draft but not edit it." />
+        <DataDescriptions d={d} />
+      </>
+    );
+  return (
+    <Form
+      form={form}
+      layout="vertical"
+      className="pg-proforma-form"
+      initialValues={{ ...d.app.data, hecNocDate: d.app.data.hecNocDate ? dayjs(d.app.data.hecNocDate) : undefined, campusId: d.app.campusId ?? undefined }}
+      onFinish={(v) => run(() => saveApplication(d.app.ref, { ...v, hecNocDate: v.hecNocDate ? dayjs(v.hecNocDate).format("YYYY-MM-DD") : undefined }))}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+        <span className="muted" style={{ fontSize: 12.5 }}>
+          PCP&apos;s {d.app.programType === "PHD" ? "PhD" : "MS/MPhil"} rule: intake up to {r.maxIntake}, at least {r.minDurationYears} years, {r.minCourseworkCredits} coursework credit hours, {r.minResearchLabs} research lab{r.minResearchLabs === 1 ? "" : "s"}, {r.minJournals} journals{r.hecDigitalLibrary ? " and HEC Digital Library access" : ""}.
+        </span>
+        <FillDemo onClick={() => form.setFieldsValue({ ...DEMO_PG_FORM, hecNocDate: dayjs(DEMO_PG_FORM.hecNocDate), proposedIntake: d.app.data.proposedIntake ?? Math.min(6, r.maxIntake), campusId: d.app.campusId ?? demoCampus?.id, ...(d.app.kind === "RENEWAL" ? { complianceConfirmed: true } : {}) })} />
+      </div>
+      <Row gutter={12}>
+        <Col xs={24} md={10}>
+          <Form.Item label="Field of study">
+            <Input value={d.app.field} disabled />
+          </Form.Item>
+        </Col>
+        <Col xs={24} md={14}>
+          <Form.Item name="campusId" label="Campus" rules={[{ required: true, message: "Pick the campus this case is for" }]}>
+            <Select placeholder="Pick the campus" options={d.campuses.map((c) => ({ value: c.id, label: `${c.name}${c.isMain ? " (main)" : ""}` }))} />
+          </Form.Item>
+        </Col>
+      </Row>
+      <Row gutter={12}>
+        <Col xs={12} md={6}><Form.Item name="proposedIntake" label="Annual intake" rules={[{ required: true }]}><InputNumber min={1} style={{ width: "100%" }} /></Form.Item></Col>
+        <Col xs={12} md={6}><Form.Item name="durationYears" label="Duration (years)"><InputNumber min={1} max={8} style={{ width: "100%" }} /></Form.Item></Col>
+        <Col xs={12} md={6}><Form.Item name="courseworkCredits" label="Coursework credit hours"><InputNumber min={0} style={{ width: "100%" }} /></Form.Item></Col>
+        <Col xs={12} md={6}><Form.Item name="researchLabs" label="Research laboratories"><InputNumber min={0} style={{ width: "100%" }} /></Form.Item></Col>
+      </Row>
+      <Row gutter={12}>
+        <Col xs={24} md={12}><Form.Item name="researchLabList" label="Research laboratories (list)"><Input placeholder="Drug delivery lab, Analytical lab, ..." /></Form.Item></Col>
+        <Col xs={12} md={6}><Form.Item name="libraryJournals" label="Journals subscribed"><InputNumber min={0} style={{ width: "100%" }} /></Form.Item></Col>
+        <Col xs={12} md={6}>
+          <Form.Item label=" " colon={false}>
+            <Form.Item name="thesisRequired" valuePropName="checked" noStyle>
+              <Checkbox>Thesis required</Checkbox>
+            </Form.Item>
+          </Form.Item>
+        </Col>
+      </Row>
+      <Form.Item name="equipment" label="Major research equipment"><Input.TextArea rows={2} placeholder="HPLC, spectrophotometer, dissolution apparatus, ..." /></Form.Item>
+      <Form.Item name="hecDigitalLibrary" valuePropName="checked"><Checkbox>Students and supervisors have HEC Digital Library access</Checkbox></Form.Item>
+      <Row gutter={12}>
+        <Col xs={24} md={14}><Form.Item name="hecNocNumber" label="HEC NOC number for this PG programme" extra="Upload the HEC NOC itself under Application documents."><Input placeholder="HEC/QAA/PG/…" /></Form.Item></Col>
+        <Col xs={24} md={10}><Form.Item name="hecNocDate" label="HEC NOC date"><DatePicker style={{ width: "100%" }} format="D MMM YYYY" /></Form.Item></Col>
+      </Row>
+      {d.app.kind === "RENEWAL" ? (
+        <Form.Item name="complianceConfirmed" valuePropName="checked">
+          <Checkbox>We confirm the programme complied with PCP&apos;s conditions in every year of the current accreditation term.</Checkbox>
+        </Form.Item>
+      ) : null}
+      <Form.Item name="notes" label="Notes"><Input.TextArea rows={2} /></Form.Item>
+      <Button type="primary" htmlType="submit" loading={pending}>Save and run checks</Button>
+    </Form>
   );
 }
 
@@ -209,7 +326,9 @@ export default function InstitutionApplicationView({ d, perms }: { d: AppDetail;
   const draft = d.app.status === "DRAFT";
   const failing = d.app.checks.filter((c) => !c.ok).length;
   const checksPass = d.app.checks.length > 0 && failing === 0;
-  const acc = d.app.kind !== "NOC";
+  const pg = !!d.pg;
+  // A postgraduate case is an accreditation, but its file is the PG proforma rather than the self-assessment.
+  const acc = d.app.kind !== "NOC" && !pg;
 
   useEffect(() => {
     if (d.app.feePsid && !d.app.feePaidAt)
@@ -312,6 +431,11 @@ export default function InstitutionApplicationView({ d, perms }: { d: AppDetail;
             </Card>
           ) : null}
 
+          {pg ? (
+            <Card size="small" id="case-form" title={`PG proforma: ${d.app.programType === "PHD" ? "PhD" : "MS/MPhil"} ${d.app.field}`} style={{ marginBottom: 16 }} extra={<span className="faint" style={{ fontSize: 12 }}>PCP&apos;s separate postgraduate form</span>}>
+              {draft ? <PgProformaForm d={d} run={run} pending={pending} canEdit={perms.canEdit} /> : <DataDescriptions d={d} />}
+            </Card>
+          ) : (
           <Card
             size="small"
             id="case-form"
@@ -364,7 +488,35 @@ export default function InstitutionApplicationView({ d, perms }: { d: AppDetail;
               </>
             )}
           </Card>
+          )}
 
+          {pg ? (
+            <Card
+              size="small"
+              id="case-faculty"
+              title={
+                <span>
+                  <TeamOutlined style={{ marginRight: 8, color: "var(--brand)" }} />
+                  Supervisors linked by Faculty ID
+                </span>
+              }
+              extra={draft && perms.canEdit ? <FillDemo label="Link PhD faculty in the field" onClick={() => run(() => autoLinkCaseFaculty(d.app.ref))} /> : null}
+              style={{ marginBottom: 16 }}
+            >
+              <div style={{ marginBottom: 10 }}>
+                <SupervisorChips d={d} />
+              </div>
+              {draft && perms.canEdit ? <FacultyPicker d={d} run={run} pending={pending} /> : null}
+              <SupervisorTable
+                d={d}
+                edit={draft && perms.canEdit ? (r) => <SupervisorDeclare key={`${r.facultyId}-${JSON.stringify(r.details)}`} d={d} r={r} run={run} pending={pending} /> : undefined}
+                actions={draft && perms.canEdit ? (r) => <Button size="small" type="text" danger icon={<DeleteOutlined />} title="Remove from this case" onClick={() => run(() => unlinkCaseFaculty(d.app.ref, r.facultyId))} /> : undefined}
+              />
+              <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: "10px 0 0" }}>
+                {d.app.programType === "PHD" ? "A PhD" : "An MS/MPhil"} supervisor needs a {d.pg!.rule.supervisorQualification} and {d.pg!.rule.minPublications} publications{d.pg!.rule.hecApprovedCounts ? " or HEC-approved supervisor status" : ""}, and supervises at most {d.pg!.rule.maxStudentsPerSupervisor} students. Enter what each supervisor has; PCP&apos;s technical officer checks it.
+              </Typography.Paragraph>
+            </Card>
+          ) : (
           <Card
             size="small"
             id="case-faculty"
@@ -394,6 +546,7 @@ export default function InstitutionApplicationView({ d, perms }: { d: AppDetail;
               Teachers are linked by their PCP Faculty ID, never typed in. Someone new? Add them under Faculty first; the duplicate check runs there.
             </Typography.Paragraph>
           </Card>
+          )}
 
           {acc ? (
             <Card size="small" id="case-self" title="Self-assessment" extra={<span className="faint" style={{ fontSize: 12 }}>Rate each criterion; explain anything not fully met</span>} style={{ marginBottom: 16 }}>

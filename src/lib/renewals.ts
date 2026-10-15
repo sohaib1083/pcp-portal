@@ -4,7 +4,7 @@ import { and, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { audit } from "./audit";
 import { notify } from "./util";
-import { CLOSED_STATUSES, PROGRAM_LABELS } from "./workflow";
+import { CLOSED_STATUSES, programmeName } from "./workflow";
 
 export const RENEWAL_THRESHOLDS = [180, 120, 90, 60, 30, 0];
 
@@ -36,12 +36,13 @@ export async function runRenewalAlerts(today = todayPk()) {
       where: and(
         eq(schema.applications.institutionId, p.institutionId),
         eq(schema.applications.programType, p.type),
+        eq(schema.applications.field, p.field),
         inArray(schema.applications.kind, ["RENEWAL", "ACCREDITATION"]),
         notInArray(schema.applications.status, ["DRAFT", ...CLOSED_STATUSES]),
       ),
     });
     if (open && threshold > 0) continue;
-    const prog = PROGRAM_LABELS[p.type] ?? p.type;
+    const prog = programmeName(p.type, p.field);
     await db.transaction(async (tx) => {
       const [row] = await tx.insert(schema.renewalAlerts).values({ programId: p.id, validUntil: until, threshold }).onConflictDoNothing().returning();
       if (!row) return;
@@ -52,7 +53,7 @@ export async function runRenewalAlerts(today = todayPk()) {
       } else {
         await notify(tx, `inst:${code}`, `Renewal due: ${prog} accreditation expires on ${nice(until)}`, `${left} days left. Open the prepared renewal file from the programme card, confirm annual compliance, update what changed and submit.`, "/institution/applications");
       }
-      await audit(tx, { actor: "system", action: "renewal.alert", entity: "program", entityId: `${shortCode}:${p.type}`, details: { validUntil: until, threshold, daysLeft: left } });
+      await audit(tx, { actor: "system", action: "renewal.alert", entity: "program", entityId: `${shortCode}:${p.type}${p.field ? `:${p.field}` : ""}`, details: { validUntil: until, threshold, daysLeft: left } });
     });
   }
   return { programs: programs.length, sent };

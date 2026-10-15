@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
+import CouncilFilesQueue from "@/components/CouncilFilesQueue";
 import PharmacistRegister from "@/components/PharmacistRegister";
+import { councilName } from "@/lib/province";
 import { db, schema } from "@/db";
 import { CATEGORIES, STATUSES, isCouncil } from "@/lib/register";
 import { can } from "@/lib/roles";
@@ -59,9 +61,21 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ q
     db.select().from(schema.pharmacistImports).orderBy(desc(schema.pharmacistImports.createdAt)).limit(20),
   ]);
   const count = (s: string) => byStatus.find((x) => x.status === s)?.n ?? 0;
+  // Validation routing (RFP 4.1.2): the council's validation on each waiting update, and the files councils sent.
+  const pendingIds = pending.map(({ u }) => u.id);
+  const validations = pendingIds.length
+    ? await db.select().from(schema.provincialValidations).where(and(eq(schema.provincialValidations.entity, "PRACTICE_UPDATE"), inArray(schema.provincialValidations.entityId, pendingIds)))
+    : [];
+  const files = await db.select().from(schema.councilFiles).orderBy(desc(schema.councilFiles.submittedAt)).limit(20);
 
   return (
     <PharmacistRegister
+      councilFiles={
+        <CouncilFilesQueue
+          canManage={canManage}
+          files={files.map((f) => ({ id: f.id, ref: f.ref, council: f.council, councilName: councilName(f.council), fileName: f.fileName, totalRows: f.totalRows, readyRows: f.readyRows, errorRows: f.errorRows, note: f.note, status: f.status, submittedBy: f.submittedBy, submittedAt: f.submittedAt.toISOString(), decidedBy: f.decidedBy, decidedAt: f.decidedAt?.toISOString() ?? null, decisionNote: f.decisionNote, importRef: f.importRef }))}
+        />
+      }
       canManage={canManage}
       filters={{ q, council: sp.council ?? "", category: sp.category ?? "", status: sp.status ?? "", page, tab: sp.tab ?? "register" }}
       stats={{ total: byStatus.reduce((a, x) => a + x.n, 0), active: count("ACTIVE"), dormant: count("DORMANT"), suspended: count("SUSPENDED"), cancelled: count("CANCELLED"), pending: pending.length }}
@@ -73,6 +87,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ q
         submittedAt: u.submittedAt.toISOString(),
         evidence: doc?.id ? { id: doc.id, fileName: doc.fileName ?? "evidence" } : null,
         pharmacist: { id: p.id, regNo: p.regNo, fullName: p.fullName, council: p.council, status: p.status, current: p.practiceConfirmed ? `${p.designation}, ${p.practicePlace}` : null },
+        validatedBy: ((v) => (v?.status === "VALIDATED" ? { name: councilName(p.council), by: v.decidedBy, at: v.decidedAt.toISOString() } : null))(validations.find((x) => x.entityId === u.id)),
       }))}
       recent={recent.map(({ u, p }) => ({ id: u.id, status: u.status, practicePlace: u.practicePlace, designation: u.designation, reviewedBy: u.reviewedBy, reviewedAt: u.reviewedAt?.toISOString() ?? null, reviewNote: u.reviewNote, pharmacist: p }))}
       imports={imports.map((i) => ({ ...i, createdAt: i.createdAt.toISOString() }))}

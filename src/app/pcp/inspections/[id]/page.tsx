@@ -3,17 +3,9 @@ import { and, eq } from "drizzle-orm";
 import InspectionForm from "@/components/InspectionForm";
 import { db, schema } from "@/db";
 import { can } from "@/lib/roles";
+import { getScoringRule } from "@/lib/rules";
 import { requireUser } from "@/lib/session";
-
-const CRITERIA = [
-  "Faculty: qualified, full-time, as per submitted list",
-  "Laboratories: equipment, chemicals and safety",
-  "Library: books, journals and digital access",
-  "Classrooms and building",
-  "Student records and attendance",
-  "Hospital / pharmacy practice linkage",
-  "Governance and finances",
-];
+import { inspectionCriteriaFor, isPg } from "@/lib/workflow";
 
 export default async function InspectionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -31,24 +23,34 @@ export default async function InspectionPage({ params }: { params: Promise<{ id:
   const facultyCount = linked || (await db.$count(schema.facultyLinks, and(eq(schema.facultyLinks.institutionId, insp.institutionId), eq(schema.facultyLinks.programType, app?.programType ?? ""), eq(schema.facultyLinks.status, "ACTIVE"))));
   const staff = await db.select().from(schema.staff);
   const name = (u: string) => staff.find((s) => s.username === u)?.displayName ?? u;
+  const score = insp.status === "SUBMITTED" ? await db.query.inspectionScores.findFirst({ where: eq(schema.inspectionScores.inspectionId, insp.id) }) : null;
+  const pg = isPg(app?.programType);
   return (
     <InspectionForm
       inspectionId={insp.id}
       status={insp.status}
-      criteria={CRITERIA}
+      // A postgraduate visit checks supervisors, research labs and thesis records instead of classrooms and students.
+      criteria={inspectionCriteriaFor(app?.programType ?? "")}
+      scoring={(await getScoringRule()).value}
       canSubmit={isLead && user.roles.includes("pcp_inspector")}
       team={members.map((u, i) => ({ name: name(u), province: staff.find((s) => s.username === u)?.province ?? "", lead: i === 0 }))}
-      report={insp.status === "SUBMITTED" ? { checklist: insp.checklist ?? [], summary: insp.summary } : null}
+      report={
+        insp.status === "SUBMITTED"
+          ? { checklist: insp.checklist ?? [], summary: insp.summary, score: score ? { total: score.total, max: score.max, percent: score.percent, passPercent: score.passPercent, passed: score.passed } : null }
+          : null
+      }
       context={{
         ref: app?.ref ?? "",
         program: app?.programType ?? "",
+        field: app?.field ?? "",
+        postgraduate: pg,
         inst: inst?.name ?? "",
         city: inst?.city ?? "",
         date: insp.scheduledFor,
         scope: insp.scope,
         declaredIntake: Number(app?.data?.proposedIntake ?? 0),
-        declaredLabs: Number(app?.data?.labs ?? 0),
-        declaredBooks: Number(app?.data?.libraryBooks ?? 0),
+        declaredLabs: Number((pg ? app?.data?.researchLabs : app?.data?.labs) ?? 0),
+        declaredBooks: Number((pg ? app?.data?.libraryJournals : app?.data?.libraryBooks) ?? 0),
         facultyOnRecord: facultyCount,
       }}
     />

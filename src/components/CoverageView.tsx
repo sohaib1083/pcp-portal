@@ -43,7 +43,7 @@ export default function CoverageView({ quick, signedIn }: { quick: boolean; sign
     <PublicFrame
       signedIn={signedIn}
       title="The working guide, built"
-      sub={`Every point of PCP's working guide "PCP digitisation", sections 1 to 14, with the screen that does it. Try it signs you in as the right person and opens that screen.`}
+      sub={`Every point of PCP's working guide "PCP digitisation", sections 1 to 14, and the additions in the October 2026 RFP, with the screen that does it. Try it signs you in as the right person and opens that screen.`}
     >
       <div className="cov-summary">
         <div className="cov-card">

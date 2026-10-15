@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { audit } from "@/lib/audit";
 import { fileDocument } from "@/lib/letters";
+import { councilOfficers } from "@/lib/province";
 import { COUNCIL_INFO, STATUS_LABELS, isCouncil } from "@/lib/register";
-import { getUser } from "@/lib/session";
+import { getActiveUser } from "@/lib/session";
 import { notify } from "@/lib/util";
 
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -17,7 +18,7 @@ const TYPES: Record<string, string> = { "application/pdf": "pdf", "image/jpeg": 
  * A file upload, so a route handler rather than a server action (server actions accept 1 MB).
  */
 export async function POST(req: Request) {
-  const user = await getUser();
+  const user = await getActiveUser();
   if (!user || !user.roles.includes("pharmacist")) return NextResponse.json({ ok: false, message: "Sign in as a registered pharmacist." }, { status: 403 });
   const p = await db.query.pharmacists.findFirst({ where: eq(schema.pharmacists.username, user.username) });
   if (!p) return NextResponse.json({ ok: false, message: "No registration is linked to this account. Contact PCP's registration officer." }, { status: 404 });
@@ -43,20 +44,28 @@ export async function POST(req: Request) {
     const replaced = await tx
       .update(schema.practiceUpdates)
       .set({ status: "WITHDRAWN", reviewNote: "Replaced by a newer update from the pharmacist.", reviewedAt: new Date(), reviewedBy: user.username })
-      .where(and(eq(schema.practiceUpdates.pharmacistId, p.id), eq(schema.practiceUpdates.status, "PENDING")))
+      .where(and(eq(schema.practiceUpdates.pharmacistId, p.id), inArray(schema.practiceUpdates.status, ["PENDING", "WITH_COUNCIL"])))
       .returning({ id: schema.practiceUpdates.id });
     const doc = await fileDocument(tx, { pharmacistId: p.id, folder: "practice-updates", docType: "Practice evidence", fileName: file.name || `evidence.${TYPES[file.type]}`, bytes, mimeType: file.type, uploadedBy: user.username, verificationStatus: "PENDING" });
-    const [u] = await tx.insert(schema.practiceUpdates).values({ pharmacistId: p.id, practicePlace, designation, evidenceDocumentId: doc.id, status: "PENDING" }).returning();
-    await tx.insert(schema.pharmacistEvents).values({ pharmacistId: p.id, kind: "PRACTICE", note: `Practice update sent for verification: ${designation}, ${practicePlace}.`, actor: user.username });
-    await audit(tx, { actor: user.username, action: "pharmacist.practice.submitted", entity: "pharmacist", entityId: p.regNo, details: { updateId: u.id, practicePlace, designation, evidenceDocumentId: doc.id, sha256: doc.sha256, replaced: replaced.map((r) => r.id) } });
-    for (const role of ["role:pcp_registration", "role:pcp_officer"])
-      await notify(tx, role, `Practice update waiting: ${p.fullName}`, `${p.regNo} reported ${designation}, ${practicePlace}, with evidence. Verify or reject it.`, "/pcp/pharmacists?tab=updates");
-    return { replaced: replaced.length };
+    // Validation routing (RFP 4.1.2): a council with an officer on the portal validates its registrations first, then PCP verifies.
+    const officers = await councilOfficers(tx, p.council);
+    const council = isCouncil(p.council) ? COUNCIL_INFO[p.council].name : `${p.council} council`;
+    const [u] = await tx.insert(schema.practiceUpdates).values({ pharmacistId: p.id, practicePlace, designation, evidenceDocumentId: doc.id, status: officers.length ? "WITH_COUNCIL" : "PENDING" }).returning();
+    await tx.insert(schema.pharmacistEvents).values({ pharmacistId: p.id, kind: "PRACTICE", note: `Practice update sent for verification${officers.length ? ` (the ${council} validates it first)` : ""}: ${designation}, ${practicePlace}.`, actor: user.username });
+    await audit(tx, { actor: user.username, action: "pharmacist.practice.submitted", entity: "pharmacist", entityId: p.regNo, details: { updateId: u.id, practicePlace, designation, evidenceDocumentId: doc.id, sha256: doc.sha256, replaced: replaced.map((r) => r.id), routedTo: officers.length ? p.council : "PCP" } });
+    if (officers.length)
+      for (const o of officers) await notify(tx, `user:${o}`, `Practice update to validate: ${p.fullName}`, `${p.regNo} reported ${designation}, ${practicePlace}, with evidence. Validate it for PCP, or return it.`, "/province/pharmacists?tab=validation");
+    else
+      for (const role of ["role:pcp_registration", "role:pcp_officer"])
+        await notify(tx, role, `Practice update waiting: ${p.fullName}`, `${p.regNo} reported ${designation}, ${practicePlace}, with evidence. Verify or reject it.`, "/pcp/pharmacists?tab=updates");
+    return { replaced: replaced.length, council: officers.length ? council : null };
   });
   revalidatePath("/pharmacist");
   revalidatePath("/pcp/pharmacists");
   return NextResponse.json({
     ok: true,
-    message: result.replaced ? "Sent to PCP for verification. It replaces the update you sent earlier." : "Sent to PCP for verification. You will get a message when it is decided.",
+    message:
+      (result.council ? `Sent to the ${result.council} to validate; PCP verifies it after that.` : "Sent to PCP for verification.") +
+      (result.replaced ? " It replaces the update you sent earlier." : " You will get a message when it is decided."),
   });
 }

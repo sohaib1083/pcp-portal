@@ -10,6 +10,7 @@ import type { AppealDetail } from "@/lib/council-data";
 import { fmtDate, timeAgo } from "./common";
 import { DecisionPill, DocLink, ModuleStatus, Quote } from "./CouncilParts";
 import { FillDemo } from "./demo-helpers";
+import CaseGovernanceNote from "./CaseGovernanceNote";
 import ScreenGuide from "./ScreenGuide";
 
 const TRACK = ["Filed", "Officer review", "Council", "Decided"];
@@ -164,6 +165,7 @@ export default function AppealView({ d, side, canReview, canWithdraw }: { d: App
         </div>
       </Card>
 
+      {side === "pcp" ? <CaseGovernanceNote refNo={a.ref} status={a.status} /> : null}
       <Row gutter={18}>
         <Col xs={24} lg={15}>
           {a.status === "UPHELD" || a.status === "DISMISSED" ? (

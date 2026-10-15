@@ -78,6 +78,22 @@
       {
         "name": "pcp_secretary",
         "description": "PCP Secretary: council decisions and certificates"
+      },
+      {
+        "name": "pcp_technical",
+        "description": "PCP Technical officer: technical review, PG proformas"
+      },
+      {
+        "name": "pcp_legal",
+        "description": "PCP Legal officer: court cases and litigation"
+      },
+      {
+        "name": "provincial_council",
+        "description": "Provincial council officer: one province"
+      },
+      {
+        "name": "faculty",
+        "description": "Faculty member (own academic profile)"
       }
     ]
   },
@@ -687,6 +703,101 @@
       ],
       "realmRoles": [
         "pcp_verification"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pcp.technical",
+      "enabled": true,
+      "firstName": "Faisal",
+      "lastName": "Rehman",
+      "email": "pcp.technical@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_technical"
+      ],
+      "groups": []
+    },
+    {
+      "username": "pcp.legal",
+      "enabled": true,
+      "firstName": "Amna",
+      "lastName": "Chaudhry",
+      "email": "pcp.legal@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pcp_legal"
+      ],
+      "groups": []
+    },
+    {
+      "username": "punjab.council",
+      "enabled": true,
+      "firstName": "Tahir",
+      "lastName": "Mahmood",
+      "email": "punjab.council@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "provincial_council"
+      ],
+      "groups": []
+    },
+    {
+      "username": "sindh.council",
+      "enabled": true,
+      "firstName": "Shazia",
+      "lastName": "Abbasi",
+      "email": "sindh.council@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "provincial_council"
+      ],
+      "groups": []
+    },
+    {
+      "username": "fac.noor",
+      "enabled": true,
+      "firstName": "Noor Rabia",
+      "lastName": "Ahmed",
+      "email": "fac.noor@demo.pcp.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo@1234",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "faculty"
       ],
       "groups": []
     },

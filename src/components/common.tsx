@@ -100,6 +100,8 @@ export function Pill({ value, label }: { value: string; label?: string }) {
 
 export const kindLabel = (k: string) => KIND_LABELS[k] ?? k;
 export const programLabel = (p: string) => PROGRAM_LABELS[p] ?? p;
+/** A programme with its postgraduate field: "PhD Pharmacology"; "PharmD" when there is no field. */
+export const programmeLabel = (p: string, field?: string | null) => (field ? `${programLabel(p)} ${field}` : programLabel(p));
 
 export function fmtDate(iso: string | null | undefined, withTime = false) {
   if (!iso) return "—";

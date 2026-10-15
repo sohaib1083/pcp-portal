@@ -22,6 +22,8 @@ export async function certificatePdf(o: {
   issuedAt: Date;
   validUntil: string;
   decisionNote?: string | null;
+  /** Postgraduate programmes: the HEC NOC the accreditation rests on. */
+  hecNoc?: string | null;
 }) {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([595, 842]);
@@ -39,6 +41,7 @@ export async function certificatePdf(o: {
     ["Institution", `${o.institution} (${o.institutionCode})`],
     ["City", o.city],
     ["Program", o.program],
+    ...(o.hecNoc ? [["HEC NOC", o.hecNoc]] : []),
     [acc ? "Accredited annual intake" : "Approved annual intake", String(o.intake)],
     ...(acc ? [["Type", o.kind === "RENEWAL" ? "Renewal of accreditation" : "First accreditation"], ["Accredited from", o.validFrom ?? o.issuedAt.toISOString().slice(0, 10)]] : []),
     ["Issued", o.issuedAt.toISOString().slice(0, 10)],

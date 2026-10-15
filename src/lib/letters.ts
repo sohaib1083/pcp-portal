@@ -2,7 +2,7 @@
 // so wording and look stay consistent (guide section 14: "standard decision letters from templates").
 import QRCode from "qrcode";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { putFileAt } from "./storage";
 
@@ -154,7 +154,10 @@ export async function fileDocument(
     ? eq(schema.documents.institutionId, o.institutionId)
     : o.onboardingId
       ? eq(schema.documents.onboardingId, o.onboardingId)
-      : eq(schema.documents.pharmacistId, o.pharmacistId ?? -1);
+      : o.pharmacistId
+        ? eq(schema.documents.pharmacistId, o.pharmacistId)
+        : // A PCP-level paper (minutes, court orders): versions count within its folder.
+          and(isNull(schema.documents.institutionId), isNull(schema.documents.onboardingId), isNull(schema.documents.pharmacistId));
   const [{ v }] = await exec
     .select({ v: sql<number>`coalesce(max(version),0)::int` })
     .from(schema.documents)

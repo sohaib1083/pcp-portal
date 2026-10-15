@@ -1,5 +1,12 @@
 // Module: NOC / accreditation / renewal case workflow. Owner: workflow work.
-import { date, integer, jsonb, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, date, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+
+/** What the institution declares about a postgraduate supervisor on a case; the technical officer checks it. */
+export type SupervisorDetails = {
+  publications?: number; // research publications in recognised journals
+  hecApproved?: boolean; // HEC-approved PhD supervisor
+  currentStudents?: number; // postgraduate students already under supervision
+};
 
 /** Faculty linked to a case by Faculty ID, per subject, so the rules can check "Pharmacology: 1 linked, 2 required". */
 export const applicationFaculty = pgTable(
@@ -8,7 +15,8 @@ export const applicationFaculty = pgTable(
     id: serial("id").primaryKey(),
     applicationId: integer("application_id").notNull(),
     facultyId: integer("faculty_id").notNull(),
-    subject: text("subject").notNull(), // Pharmaceutics | Pharmacology | Pharmaceutical Chemistry | Pharmacognosy | Pharmacy Practice
+    subject: text("subject").notNull(), // Pharmaceutics | Pharmacology | Pharmaceutical Chemistry | Pharmacognosy | Pharmacy Practice | Supervisor (postgraduate)
+    details: jsonb("details").$type<SupervisorDetails>(), // postgraduate supervisors only
     createdBy: text("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -21,12 +29,22 @@ export type TechnicalReviewItem = {
   remarks: string;
 };
 
+/** The technical officer's check of one postgraduate supervisor against the `pg.rules` rule. */
+export type SupervisorCheck = {
+  facultyId: number;
+  pcpId: string;
+  name: string;
+  result: "ELIGIBLE" | "NOT_ELIGIBLE";
+  remarks: string;
+};
+
 /** Technical review: the academic check against PCP standards between scrutiny and inspection (guide section 4). */
 export const technicalReviews = pgTable("technical_reviews", {
   id: serial("id").primaryKey(),
   applicationId: integer("application_id").notNull(),
   reviewer: text("reviewer").notNull(),
   items: jsonb("items").$type<TechnicalReviewItem[]>().notNull(),
+  supervisors: jsonb("supervisors").$type<SupervisorCheck[]>(), // postgraduate cases: one check per linked supervisor
   summary: text("summary").notNull(),
   outcome: text("outcome").notNull(), // PROCEED (to inspection)
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -58,4 +76,24 @@ export const slaNotices = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("sla_notice_once").on(t.applicationId, t.status, t.stageStartedAt, t.kind)],
+);
+
+/**
+ * The inspection score (RFP 4.1.2 "score entry panels"): the weighted total of the checklist scores, the
+ * percentage and the pass threshold of the `inspection.scoring` rule version used at submission.
+ */
+export const inspectionScores = pgTable(
+  "inspection_scores",
+  {
+    id: serial("id").primaryKey(),
+    inspectionId: integer("inspection_id").notNull(),
+    total: real("total").notNull(),
+    max: real("max").notNull(),
+    percent: real("percent").notNull(),
+    passPercent: real("pass_percent").notNull(),
+    passed: boolean("passed").notNull(),
+    ruleVersion: integer("rule_version").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("inspection_scores_once").on(t.inspectionId)],
 );

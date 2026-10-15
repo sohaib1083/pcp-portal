@@ -4,7 +4,7 @@ import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { emailAudience } from "./messages";
 import { fileDocument, publicUrl, renderLetter } from "./letters";
-import { KIND_LABELS, PROGRAM_LABELS } from "./workflow";
+import { KIND_LABELS, programmeName } from "./workflow";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type Executor = typeof db | Tx;
@@ -60,7 +60,10 @@ export async function notifyOn(exec: Executor, audience: string, title: string, 
 
 // ---------- Labels ----------
 
-export const caseLabel = (a: { kind: string; programType: string }) => `${KIND_LABELS[a.kind] ?? a.kind} · ${PROGRAM_LABELS[a.programType] ?? a.programType}`;
+/** Meetings of the Council decide; meetings of any other committee record recommendations. */
+export const COUNCIL = "Council";
+
+export const caseLabel = (a: { kind: string; programType: string; field?: string | null }) => `${KIND_LABELS[a.kind] ?? a.kind} · ${programmeName(a.programType, a.field)}`;
 
 export const DECISION_LABELS: Record<string, string> = {
   APPROVED: "Approved",
@@ -110,13 +113,13 @@ export function draftFromRecommendation(rec: string | null) {
   return null;
 }
 
-/** Undecided agenda items in meetings that are not closed: these cases and appeals are already scheduled. */
+/** Undecided agenda items in council meetings that are not closed: these cases and appeals are already scheduled. */
 export async function scheduledItems(exec: Executor) {
   return exec
     .select({ applicationId: schema.councilItems.applicationId, appealId: schema.councilItems.appealId, meetingId: schema.councilItems.meetingId })
     .from(schema.councilItems)
     .innerJoin(schema.councilMeetings, eq(schema.councilMeetings.id, schema.councilItems.meetingId))
-    .where(and(ne(schema.councilMeetings.status, "CLOSED"), isNull(schema.councilItems.decision)));
+    .where(and(eq(schema.councilMeetings.committee, COUNCIL), ne(schema.councilMeetings.status, "CLOSED"), isNull(schema.councilItems.decision)));
 }
 
 /** Cases awaiting a council decision and appeals ready for council that are not on an open agenda yet. */
@@ -140,13 +143,13 @@ export async function renumberAgenda(exec: Executor, meetingId: number) {
   for (const [i, r] of rest.entries()) if (r.position !== i + 1) await exec.update(schema.councilItems).set({ position: i + 1 }).where(eq(schema.councilItems.id, r.id));
 }
 
-/** The next council meeting that is still planned (today or later). */
+/** The next council meeting that is still planned (today or later). Committee meetings are not council meetings. */
 export async function nextPlannedMeeting(exec: Executor) {
   const today = new Date().toISOString().slice(0, 10);
   const [m] = await exec
     .select()
     .from(schema.councilMeetings)
-    .where(and(eq(schema.councilMeetings.status, "PLANNED"), sql`${schema.councilMeetings.meetingDate} >= ${today}`))
+    .where(and(eq(schema.councilMeetings.committee, COUNCIL), eq(schema.councilMeetings.status, "PLANNED"), sql`${schema.councilMeetings.meetingDate} >= ${today}`))
     .orderBy(asc(schema.councilMeetings.meetingDate))
     .limit(1);
   return m ?? null;
@@ -154,37 +157,60 @@ export async function nextPlannedMeeting(exec: Executor) {
 
 // ---------- Minutes ----------
 
-/** Minutes of a council meeting: one row per agenda item with the decision. A PCP-level document (no owner). */
+/**
+ * Minutes of a council or committee meeting: one row per agenda item with the decision (council) or the
+ * recommendation (committee), then the action points with owner and due date. A PCP-level document (no owner).
+ */
 export async function fileMinutes(exec: Executor, meetingId: number, by: { username: string; name: string }) {
   const meeting = await exec.query.councilMeetings.findFirst({ where: eq(schema.councilMeetings.id, meetingId) });
   if (!meeting) throw new Error("Meeting not found");
+  const isCouncil = meeting.committee === COUNCIL;
   const items = await exec.select().from(schema.councilItems).where(eq(schema.councilItems.meetingId, meetingId)).orderBy(asc(schema.councilItems.position));
   const appIds = items.map((i) => i.applicationId).filter((x): x is number => x != null);
   const appealIds = items.map((i) => i.appealId).filter((x): x is number => x != null);
+  const courtIds = items.map((i) => i.courtCaseId).filter((x): x is number => x != null);
+  const letterIds = items.map((i) => i.letterId).filter((x): x is number => x != null);
   const apps = appIds.length ? await exec.select().from(schema.applications).where(inArray(schema.applications.id, appIds)) : [];
   const appeals = appealIds.length ? await exec.select().from(schema.appeals).where(inArray(schema.appeals.id, appealIds)) : [];
+  const courts = courtIds.length ? await exec.select().from(schema.courtCases).where(inArray(schema.courtCases.id, courtIds)) : [];
+  const letters = letterIds.length ? await exec.select().from(schema.correspondence).where(inArray(schema.correspondence.id, letterIds)) : [];
+  const actions = await exec.select().from(schema.committeeActions).where(eq(schema.committeeActions.meetingId, meetingId)).orderBy(asc(schema.committeeActions.id));
+  const staff = actions.length ? await exec.select().from(schema.staff) : [];
   const insts = await exec.select().from(schema.institutions);
   const instName = (id: number) => insts.find((i) => i.id === id)?.shortCode ?? "";
   const appealCase = appeals.length ? await exec.select().from(schema.applications).where(inArray(schema.applications.id, appeals.map((a) => a.applicationId))) : [];
 
-  // Left column is narrow in the letter layout: the reference only; the rest goes with the decision.
+  // The minutes are one page: shorten the notes when the agenda is long.
+  const rows = items.length + actions.length;
+  const cut = (t: string | null | undefined) => (t ?? "").slice(0, rows > 6 ? 90 : 200);
+  // Left column is narrow in the letter layout: the reference only; the rest goes with the outcome.
   const table: [string, string][] = items.map((it, n) => {
     let left = "";
     let what = "";
     if (it.applicationId) {
       const a = apps.find((x) => x.id === it.applicationId);
       left = `${n + 1}. ${a?.ref ?? "?"}`;
-      what = a ? `${instName(a.institutionId)}, ${KIND_LABELS[a.kind] ?? a.kind} ${PROGRAM_LABELS[a.programType] ?? a.programType}` : "";
-    } else {
+      what = a ? `${instName(a.institutionId)}, ${KIND_LABELS[a.kind] ?? a.kind} ${programmeName(a.programType, a.field)}` : "";
+    } else if (it.appealId) {
       const p = appeals.find((x) => x.id === it.appealId);
       const c = appealCase.find((x) => x.id === p?.applicationId);
       left = `${n + 1}. ${p?.ref ?? "?"}`;
       what = `${instName(p?.institutionId ?? 0)}, appeal against the decision on ${c?.ref ?? "?"}`;
+    } else if (it.courtCaseId) {
+      const c = courts.find((x) => x.id === it.courtCaseId);
+      left = `${n + 1}. ${c?.ref ?? "?"}`;
+      what = c ? `${c.caseNumber}, ${c.title}` : "Court case";
+    } else if (it.letterId) {
+      const l = letters.find((x) => x.id === it.letterId);
+      left = `${n + 1}. ${l?.ref ?? "?"}`;
+      what = l ? `${l.direction === "IN" ? "Letter from" : "Letter to"} ${l.party}: ${l.subject}` : "Letter";
+    } else {
+      left = `${n + 1}. Other matter`;
+      what = it.subject ?? "";
     }
     let outcome = "Not taken up; carried forward to the next meeting";
     if (it.decision) {
-      // The minutes are one page: shorten the notes when the agenda is long.
-      const note = it.decisionNote?.slice(0, items.length > 6 ? 90 : 200) ?? "";
+      const note = cut(it.decisionNote);
       outcome =
         it.decision === "DEFERRED"
           ? `Deferred to ${fmtDay(it.deferUntil)}.${note ? ` Reason: ${note}` : ""}`
@@ -195,25 +221,37 @@ export async function fileMinutes(exec: Executor, meetingId: number, by: { usern
               : it.decision === "UPHELD"
                 ? `Appeal upheld; the case returns to the council.${note ? ` ${note}` : ""}`
                 : `Appeal dismissed; the decision stands.${note ? ` ${note}` : ""}`;
+    } else if (it.resolution) {
+      outcome = `${isCouncil ? "Outcome" : "Recommendation"}: ${cut(it.resolution)}`;
     }
     return [left, `${what}: ${outcome}`];
   });
+  const name = (u: string) => staff.find((s) => s.username === u)?.displayName ?? u;
+  for (const [i, a] of actions.entries()) table.push([`Action ${i + 1}`, `${cut(a.title).replace(/[.\s]*$/, ".")} Owner: ${name(a.owner)}, due ${fmtDay(a.dueDate)}.`]);
+
   const decided = items.filter((i) => i.decision).length;
+  const resolved = items.filter((i) => i.resolution).length;
+  const actionLine = actions.length ? ` ${actions.length} action point${actions.length === 1 ? " was" : "s were"} assigned, each tracked with an owner, a due date and reminders.` : "";
   const bytes = await renderLetter({
-    kind: "Council minutes",
+    kind: isCouncil ? "Council minutes" : "Committee minutes",
     refNo: meeting.ref,
     date: meeting.closedAt ?? new Date(),
     subject: `Minutes of ${meeting.title} (${meeting.ref}) held on ${fmtDay(meeting.meetingDate)}`,
-    paragraphs: [
-      `The council considered ${items.length} item${items.length === 1 ? "" : "s"} placed on the agenda by the Secretary from cases and appeals ready for a decision. ${decided} decision${decided === 1 ? " was" : "s were"} recorded, each confirmed with a one-time code and written to the audit log.`,
-      "Each decision is communicated to the institution with a standard decision letter. A deferral states the reason and the date the case returns; a rejection states its grounds.",
-    ],
+    paragraphs: isCouncil
+      ? [
+          `The council considered ${items.length} item${items.length === 1 ? "" : "s"} placed on the agenda by the Secretary from cases and appeals ready for a decision. ${decided} decision${decided === 1 ? " was" : "s were"} recorded, each confirmed with a one-time code and written to the audit log.${resolved ? ` ${resolved} other matter${resolved === 1 ? " was" : "s were"} discussed and noted.` : ""}${actionLine}`,
+          "Each decision is communicated to the institution with a standard decision letter. A deferral states the reason and the date the case returns; a rejection states its grounds.",
+        ]
+      : [
+          `The ${meeting.committee} considered ${items.length} item${items.length === 1 ? "" : "s"} and recorded ${resolved} recommendation${resolved === 1 ? "" : "s"}.${actionLine}`,
+          "A committee recommends; it does not decide. Recommendations on cases and appeals go to the Council, which records its decisions with a one-time code.",
+        ],
     table,
-    signatory: { name: by.name, title: "Secretary, Pharmacy Council of Pakistan", signedAt: meeting.closedAt ?? new Date() },
+    signatory: { name: by.name, title: isCouncil ? "Secretary, Pharmacy Council of Pakistan" : `Secretary to the ${meeting.committee}`, signedAt: meeting.closedAt ?? new Date() },
     qrUrl: publicUrl(`/pcp/council/${meeting.ref}`),
     qrCaption: "Opens the meeting record (PCP staff sign-in)",
   });
-  return fileDocument(exec, { folder: `council/${meeting.ref}`, docType: "Council minutes", fileName: `minutes-${meeting.ref}.pdf`, bytes, uploadedBy: by.username });
+  return fileDocument(exec, { folder: `council/${meeting.ref}`, docType: isCouncil ? "Council minutes" : "Committee minutes", fileName: `minutes-${meeting.ref}.pdf`, bytes, uploadedBy: by.username });
 }
 
 // ---------- Appeal decision letter ----------

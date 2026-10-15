@@ -13,6 +13,8 @@ type Rule = { key: string; versions: Version[] };
 
 const CATEGORY: [test: (k: string) => boolean, label: string, color: string][] = [
   [(k) => k.startsWith("noc."), "NOC thresholds", "blue"],
+  [(k) => k.startsWith("pg."), "Postgraduate", "geekblue"],
+  [(k) => k.startsWith("inspection."), "Inspection scoring", "magenta"],
   [(k) => k === "fees", "Fees", "gold"],
   [(k) => k.startsWith("ref."), "Reference list", "green"],
   [(k) => k.startsWith("onboarding."), "Onboarding", "purple"],
@@ -66,6 +68,15 @@ function summary(key: string, v: unknown): string {
     return `NOC within ${r.nocDecisionDays} days · accreditation within ${r.accreditationDecisionDays} days · deficiency under ${r.deficiencySharePct}% · on time at least ${r.onTimeSharePct}%`;
   }
   if (typeof v === "string") return v;
+  if (key === "pg.rules" && v && typeof v === "object") {
+    const r = v as { fields?: string[]; types?: Record<string, { maxStudentsPerSupervisor?: number; minPublications?: number; minPhdFacultyInField?: number }> };
+    const t = (k: string) => r.types?.[k];
+    return `${r.fields?.length ?? 0} fields · PhD: ${t("PHD")?.minPublications ?? "-"} publications or HEC-approved, ${t("PHD")?.maxStudentsPerSupervisor ?? "-"} students per supervisor, ${t("PHD")?.minPhdFacultyInField ?? "-"} PhD faculty in the field · MS/MPhil: ${t("MPHIL")?.maxStudentsPerSupervisor ?? "-"} per supervisor`;
+  }
+  if (key === "inspection.scoring" && v && typeof v === "object") {
+    const r = v as { maxScore?: number; passPercent?: number; weights?: Record<string, number> };
+    return `Score 0 to ${r.maxScore ?? 5} per line · pass mark ${r.passPercent ?? "-"}% · ${Object.keys(r.weights ?? {}).length} weighted lines`;
+  }
   if (key.startsWith("noc.") && v && typeof v === "object") {
     const r = v as Record<string, number>;
     return `Intake ≤ ${r.maxIntake} · 1 faculty per ${r.studentsPerFaculty} · ${r.minLabs} labs · ${r.minLibraryBooks} books`;

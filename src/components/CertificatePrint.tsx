@@ -4,7 +4,7 @@ import { Button, Space } from "antd";
 import { ArrowLeftOutlined, FilePdfOutlined, PrinterOutlined } from "@ant-design/icons";
 import { Logo, fmtDate } from "./common";
 
-type C = { no: string; kind?: string; term?: string | null; institution: string; code: string; city: string; province: string; program: string; intake: number; issuedAt: string | null; validUntil: string | null; note: string | null; qr: string; verifyUrl: string; pdfId: number | null; back: string };
+type C = { no: string; kind?: string; term?: string | null; institution: string; code: string; city: string; province: string; program: string; hecNoc?: string | null; intake: number; issuedAt: string | null; validUntil: string | null; note: string | null; qr: string; verifyUrl: string; pdfId: number | null; back: string };
 
 export default function CertificatePrint({ c }: { c: C }) {
   const acc = !!c.kind && c.kind !== "NOC";
@@ -35,6 +35,7 @@ export default function CertificatePrint({ c }: { c: C }) {
         {c.note ? <p style={{ fontSize: 14, color: "#444" }}>Council note: {c.note}</p> : null}
         <table style={{ fontSize: 15, marginTop: 12 }}>
           <tbody>
+            {c.hecNoc ? <tr><td style={{ paddingRight: 24, color: "#666" }}>HEC NOC</td><td style={{ fontFamily: "monospace" }}>{c.hecNoc}</td></tr> : null}
             <tr><td style={{ paddingRight: 24, color: "#666" }}>Issued</td><td>{fmtDate(c.issuedAt)}</td></tr>
             <tr><td style={{ paddingRight: 24, color: "#666" }}>Valid until</td><td>{fmtDate(c.validUntil)}</td></tr>
           </tbody>

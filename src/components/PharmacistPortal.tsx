@@ -48,7 +48,8 @@ export default function PharmacistPortal({ p, updates, card }: { p: Me; updates:
   const [sending, setSending] = useState(false);
   const council = isCouncil(p.council) ? COUNCIL_INFO[p.council].name : p.council;
   const tone = bannerTone(p.status, p.validUntil);
-  const pending = updates.find((u) => u.status === "PENDING");
+  // An update waits for the provincial council first (validation routing), then for PCP.
+  const pending = updates.find((u) => u.status === "PENDING" || u.status === "WITH_COUNCIL");
   const lastRejected = updates.find((u) => u.status !== "WITHDRAWN");
   const canUpdate = p.status === "ACTIVE";
   const designations = DESIGNATIONS.filter((d) => (p.category === "B" ? TECH.includes(d) : !TECH.includes(d) || d === "Store Officer"));
@@ -153,7 +154,7 @@ export default function PharmacistPortal({ p, updates, card }: { p: Me; updates:
                 style={{ marginTop: 14 }}
                 type="info"
                 showIcon
-                title={`Waiting for PCP: ${pending.designation}, ${pending.practicePlace}`}
+                title={`${pending.status === "WITH_COUNCIL" ? `Waiting for the ${council} to validate` : "Waiting for PCP"}: ${pending.designation}, ${pending.practicePlace}`}
                 description={
                   <span>
                     Sent {timeAgo(pending.submittedAt)}
@@ -233,7 +234,7 @@ export default function PharmacistPortal({ p, updates, card }: { p: Me; updates:
               columns={[
                 { title: "Sent", dataIndex: "submittedAt", render: (v) => fmtDate(v) },
                 { title: "Practice details", render: (_, u) => `${u.designation}, ${u.practicePlace}` },
-                { title: "Result", dataIndex: "status", render: (v) => <Pill value={v} label={v === "WITHDRAWN" ? "Replaced" : undefined} /> },
+                { title: "Result", dataIndex: "status", render: (v) => <Pill value={v === "WITH_COUNCIL" ? "PENDING" : v} label={v === "WITHDRAWN" ? "Replaced" : v === "WITH_COUNCIL" ? "With the council" : v === "PENDING" ? "With PCP" : undefined} /> },
                 { title: "PCP note", dataIndex: "reviewNote", render: (v) => <span className="muted" style={{ fontSize: 12.5 }}>{v ?? "—"}</span> },
               ]}
             />
